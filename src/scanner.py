@@ -101,6 +101,13 @@ _EXTRA_MIME_TYPES: dict[str, DetectedType] = {
     "application/x-flac": "audio",
 }
 
+_INCONCLUSIVE_MIMES: frozenset[str] = frozenset(
+    {
+        "application/octet-stream",
+        "binary/octet-stream",
+    }
+)
+
 
 def _normalize_extension(path: Path) -> str:
     return path.suffix.lower()
@@ -158,8 +165,11 @@ def classify_file(path: Path) -> DetectedType:
         if detected != "unknown":
             return detected
 
-    if mime in (None, "application/octet-stream", "binary/octet-stream"):
-        return _extension_type(extension)
+        normalized = mime.split(";")[0].strip().lower()
+        if normalized in _INCONCLUSIVE_MIMES:
+            return _extension_type(extension)
+
+        return "unknown"
 
     if extension in SUPPORTED_EXTENSIONS:
         return _extension_type(extension)
