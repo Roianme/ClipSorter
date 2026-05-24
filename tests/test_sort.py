@@ -38,7 +38,7 @@ def test_sort_cli_end_to_end(tmp_path: Path) -> None:
 
     output = tmp_path / "TargetFolder_sorted"
     assert output.is_dir()
-    assert (output / "clean" / "photos" / "photo.jpg").is_file()
+    assert (output / "usable" / "photos" / "photo.jpg").is_file()
 
     report = output / "_report.txt"
     assert report.is_file()

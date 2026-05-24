@@ -12,6 +12,13 @@ from classifier import Bucket
 logger = logging.getLogger(__name__)
 
 BUCKETS: tuple[Bucket, ...] = ("clean", "review", "rejected", "burst")
+OUTPUT_BUCKETS: tuple[str, ...] = ("usable", "usable/burst", "defects")
+BUCKET_TO_OUTPUT: dict[Bucket, str] = {
+    "clean": "usable",
+    "review": "usable",
+    "burst": "usable/burst",
+    "rejected": "defects",
+}
 
 TYPE_SUBFOLDERS: dict[str, str] = {
     "video": "videos",
@@ -28,10 +35,7 @@ def _type_subfolder(detected_type: str) -> str:
 
 
 def _create_bucket_tree(output_folder: Path) -> None:
-    for bucket in BUCKETS:
-        if bucket == "burst":
-            (output_folder / bucket / TYPE_SUBFOLDERS["photo"]).mkdir(parents=True, exist_ok=True)
-            continue
+    for bucket in OUTPUT_BUCKETS:
         for subfolder in TYPE_SUBFOLDERS.values():
             (output_folder / bucket / subfolder).mkdir(parents=True, exist_ok=True)
 
@@ -93,7 +97,8 @@ def move_file(
         raise FileNotFoundError(f"Converted file not found: {source}")
 
     root = Path(output_folder).resolve()
-    dest_dir = root / bucket / _type_subfolder(detected_type)
+    output_bucket = BUCKET_TO_OUTPUT[bucket]
+    dest_dir = root / output_bucket / _type_subfolder(detected_type)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     destination = _allocate_destination(dest_dir, source.name)

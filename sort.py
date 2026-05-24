@@ -133,6 +133,37 @@ def _format_metadata(qc_result: dict[str, Any], detected_type: str) -> dict[str,
     return metadata
 
 
+def _score_photo_for_burst(qc_result: dict[str, Any]) -> tuple[int, int, int]:
+    blur_score = 2 if qc_result.get("blur_check") == "pass" else 1
+    exposure_score = 2 if qc_result.get("exposure_check") == "pass" else 1
+    reason_penalty = len(qc_result.get("reasons", []))
+    return (blur_score, exposure_score, -reason_penalty)
+
+
+def _choose_best_burst_representatives(
+    burst_groups: list[dict[str, Any]],
+    qc_results: dict[str, dict[str, Any]],
+) -> set[str]:
+    selected: set[str] = set()
+    for group in burst_groups:
+        best_file = None
+        best_score: tuple[int, int, int] | None = None
+        for raw_path in group.get("files", []):
+            path = str(Path(raw_path).resolve())
+            qc_result = qc_results.get(path, {
+                "blur_check": "pass",
+                "exposure_check": "pass",
+                "reasons": [],
+            })
+            score = _score_photo_for_burst(qc_result)
+            if best_score is None or score > best_score or (score == best_score and Path(path).name < Path(best_file).name):
+                best_score = score
+                best_file = path
+        if best_file:
+            selected.add(best_file)
+    return selected
+
+
 def _converted_from_text(record: scanner.FileRecord) -> str:
     extension = record["extension"].lower()
     canonical = {
@@ -158,9 +189,9 @@ def _build_report_entries(
 
     for record in converted_records:
         original = Path(record["original_path"])
-        final_path = moved_paths.get(str(Path(record.get("converted_path", ""))))
+        converted_path = record.get("converted_path")
+        final_path = moved_paths.get(str(Path(converted_path or "")))
         if final_path is None:
-            # skipped during conversion or move
             entries.append(
                 {
                     "bucket": "skipped",
@@ -365,6 +396,8 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
             logger.exception("Burst detection failed")
     print(f"Done — {len(burst_groups)} burst groups found")
 
+    selected_burst_representatives = _choose_best_burst_representatives(burst_groups, qc_results)
+
     classifications: dict[str, classifier.ClassifierResult] = {}
     print("Classifying files...", end=" ")
     if tqdm is not None:
@@ -436,12 +469,30 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
                 continue
             try:
                 if classification["bucket"] == "burst":
-                    mv_iter.set_description(f"Moving burst file {Path(converted_path).name}")
+                    # Move selected representative into its QC-derived bucket (clean/review),
+                    # otherwise move non-selected burst members into the burst folder.
+                    if str(Path(converted_path).resolve()) in selected_burst_representatives:
+                        qc_res = qc_results.get(converted_path, {
+                            "duration_check": "pass",
+                            "blur_check": "pass",
+                            "exposure_check": "pass",
+                            "shake_check": "pass",
+                            "reasons": [],
+                        })
+                        try:
+                            move_bucket = classifier._bucket_from_qc(qc_res)
+                        except Exception:
+                            move_bucket = "clean"
+                        mv_iter.set_description(f"Moving burst representative {Path(converted_path).name} -> {move_bucket}")
+                    else:
+                        move_bucket = "burst"
+                        mv_iter.set_description(f"Moving burst member {Path(converted_path).name} -> burst")
                 else:
+                    move_bucket = classification["bucket"]
                     mv_iter.set_description(f"Moving {Path(converted_path).name}")
                 destination = mover.move_file(
                     converted_path,
-                    classification["bucket"],
+                    move_bucket,
                     record["detected_type"],
                     output_root,
                 )
@@ -457,9 +508,26 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
             if classification is None:
                 continue
             try:
+                if classification["bucket"] == "burst":
+                    if str(Path(converted_path).resolve()) in selected_burst_representatives:
+                        qc_res = qc_results.get(converted_path, {
+                            "duration_check": "pass",
+                            "blur_check": "pass",
+                            "exposure_check": "pass",
+                            "shake_check": "pass",
+                            "reasons": [],
+                        })
+                        try:
+                            move_bucket = classifier._bucket_from_qc(qc_res)
+                        except Exception:
+                            move_bucket = "clean"
+                    else:
+                        move_bucket = "burst"
+                else:
+                    move_bucket = classification["bucket"]
                 destination = mover.move_file(
                     converted_path,
-                    classification["bucket"],
+                    move_bucket,
                     record["detected_type"],
                     output_root,
                 )
@@ -486,6 +554,8 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
             "review": sum(1 for bucket in classifications.values() if bucket["bucket"] == "review"),
             "burst": sum(1 for bucket in classifications.values() if bucket["bucket"] == "burst"),
             "rejected": sum(1 for bucket in classifications.values() if bucket["bucket"] == "rejected"),
+            "usable": sum(1 for final_path in moved_paths.values() if final_path.startswith("usable/")),
+            "defects": sum(1 for final_path in moved_paths.values() if final_path.startswith("defects/")),
         },
         "entries": _build_report_entries(
             source_folder,
@@ -510,10 +580,8 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
     print("")
     print("========================================")
     print("DONE")
-    print(f"  Clean:     {report_data['results']['clean']} files")
-    print(f"  Review:    {report_data['results']['review']} files")
-    print(f"  Burst:     {report_data['results']['burst']} files")
-    print(f"  Rejected:   {report_data['results']['rejected']} files")
+    print(f"  Usable:    {report_data['results']['usable']} files")
+    print(f"  Defects:   {report_data['results']['defects']} files")
     print(f"Report saved to: {report_path}")
     print("========================================")
 
