@@ -27,6 +27,11 @@ class DuplicatePair(TypedDict):
     confidence: float
 
 
+class BurstGroup(TypedDict):
+    files: list[str]
+    match_type: Literal["burst"]
+
+
 def _normalize_pair(path_a: str, path_b: str) -> tuple[str, str]:
     if path_a <= path_b:
         return path_a, path_b
@@ -135,6 +140,61 @@ def find_image_duplicates(photo_paths: list[str | Path], config: dict[str, Any])
             )
 
     return pairs
+
+
+def find_burst_groups(photo_paths: list[str | Path], config: dict[str, Any]) -> list[BurstGroup]:
+    burst_threshold = int(config["burst_hash_distance_threshold"])
+    exact_threshold = int(config["duplicate_hash_threshold"])
+    min_group_size = int(config["burst_min_group_size"])
+
+    indexed: list[tuple[str, imagehash.ImageHash]] = []
+    for raw_path in photo_paths:
+        path = Path(raw_path)
+        phash = _photo_phash(path)
+        if phash is not None:
+            indexed.append((str(path.resolve()), phash))
+
+    sorted_indexed = sorted(indexed, key=lambda item: Path(item[0]).name)
+    adjacency: dict[str, set[str]] = {path: set() for path, _ in sorted_indexed}
+    for (path_a, hash_a), (path_b, hash_b) in combinations(sorted_indexed, 2):
+        distance = hash_a - hash_b
+        logger.debug(
+            "BURST CHECK: %s vs %s → distance %s",
+            Path(path_a).name,
+            Path(path_b).name,
+            distance,
+        )
+        if exact_threshold <= distance <= burst_threshold:
+            adjacency[path_a].add(path_b)
+            adjacency[path_b].add(path_a)
+
+    groups: list[BurstGroup] = []
+    visited: set[str] = set()
+    for path in adjacency:
+        if path in visited or not adjacency[path]:
+            continue
+
+        component: set[str] = set()
+        stack = [path]
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            for neighbor in adjacency[current]:
+                if neighbor not in component:
+                    stack.append(neighbor)
+
+        visited.update(component)
+        if len(component) >= min_group_size:
+            groups.append(
+                BurstGroup(
+                    files=sorted(component),
+                    match_type="burst",
+                )
+            )
+
+    return groups
 
 
 def find_video_duplicates(video_paths: list[str | Path], config: dict[str, Any]) -> list[DuplicatePair]:

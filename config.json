@@ -1,0 +1,22 @@
+{
+  "min_video_duration_sec": 5,
+  "min_audio_duration_sec": 3,
+  "blur_threshold": 30.0,
+  "blur_reject_ratio": 0.6,
+  "blur_review_ratio": 0.3,  "contrast_threshold": 8.0,  "exposure_low_threshold": 30,
+  "exposure_high_threshold": 225,
+  "exposure_reject_ratio": 0.7,
+  "exposure_review_ratio": 0.3,
+  "shake_threshold": 15.0,
+  "frame_sample_count": 10,
+  "duplicate_hash_threshold": 10,
+  "burst_hash_distance_threshold": 15,
+  "burst_min_group_size": 2,
+  "duplicate_video_frame_match_ratio": 0.7,
+  "duplicate_audio_similarity_threshold": 0.95,
+  "silence_rms_threshold": 0.01,
+  "silence_ratio_threshold": 0.8,
+  "video_output_codec": "libx264",
+  "video_output_crf": 18,
+  "audio_output_bitrate": "192k"
+}

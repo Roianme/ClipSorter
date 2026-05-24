@@ -83,6 +83,37 @@ def test_duplicate_forces_review_when_all_pass(file_path: Path, config: dict[str
     assert any("DUPLICATE of" in reason for reason in result["reasons"])
 
 
+def test_burst_overrides_duplicate_review_when_not_rejected(file_path: Path, config: dict[str, Any]) -> None:
+    other = file_path.parent / "other.mp4"
+    other.touch()
+    pair = DuplicatePair(
+        file_a=str(file_path.resolve()),
+        file_b=str(other.resolve()),
+        match_type="image_hash",
+        confidence=2.0,
+    )
+    group = {"files": [str(file_path.resolve())], "match_type": "burst"}
+
+    result = classify_file(_qc(), [pair], file_path, config, burst_groups=[group])
+    assert result["bucket"] == "burst"
+    assert any("DUPLICATE of" in reason for reason in result["reasons"])
+
+
+def test_burst_group_forces_burst_when_not_rejected(file_path: Path, config: dict[str, Any]) -> None:
+    group = {"files": [str(file_path.resolve())], "match_type": "burst"}
+
+    result = classify_file(_qc(), [], file_path, config, burst_groups=[group])
+    assert result["bucket"] == "burst"
+
+
+def test_burst_does_not_override_rejected(file_path: Path, config: dict[str, Any]) -> None:
+    qc = _qc(duration="rejected", reasons=["Too short"])
+    group = {"files": [str(file_path.resolve())], "match_type": "burst"}
+
+    result = classify_file(qc, [], file_path, config, burst_groups=[group])
+    assert result["bucket"] == "rejected"
+
+
 def test_duplicate_does_not_override_rejected(file_path: Path, config: dict[str, Any]) -> None:
     other = file_path.parent / "other.mp4"
     other.touch()

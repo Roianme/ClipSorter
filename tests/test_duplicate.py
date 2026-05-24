@@ -17,6 +17,7 @@ from config_loader import DEFAULT_CONFIG
 from duplicate import (
     DuplicatePair,
     find_audio_duplicates,
+    find_burst_groups,
     find_duplicates,
     find_image_duplicates,
     find_video_duplicates,
@@ -36,6 +37,8 @@ def config() -> dict[str, Any]:
     cfg = dict(DEFAULT_CONFIG)
     cfg["frame_sample_count"] = 5
     cfg["duplicate_hash_threshold"] = 10
+    cfg["burst_hash_distance_threshold"] = 15
+    cfg["burst_min_group_size"] = 2
     cfg["duplicate_video_frame_match_ratio"] = 0.7
     cfg["duplicate_audio_similarity_threshold"] = 0.95
     return cfg
@@ -204,6 +207,81 @@ def test_find_duplicates_aggregates_by_type(
     assert len(pairs) == 2
     match_types = {pair["match_type"] for pair in pairs}
     assert match_types == {"image_hash", "audio_fingerprint"}
+
+
+def test_find_burst_groups_detects_similar_images(
+    tmp_path: Path,
+    config: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import imagehash
+    import numpy as np
+
+    photo_a = tmp_path / "a.jpg"
+    photo_b = tmp_path / "b.jpg"
+    photo_c = tmp_path / "c.jpg"
+    photo_a.write_bytes(MINIMAL_PNG)
+    photo_b.write_bytes(MINIMAL_PNG)
+    photo_c.write_bytes(MINIMAL_PNG)
+
+    base = np.zeros((8, 8), dtype=bool)
+    hash_a = imagehash.ImageHash(base)
+
+    b_arr = base.copy()
+    b_arr.flat[:12] = True
+    hash_b = imagehash.ImageHash(b_arr)
+
+    c_arr = base.copy()
+    c_arr.flat[12:24] = True
+    hash_c = imagehash.ImageHash(c_arr)
+
+    def fake_phash(path: Path) -> imagehash.ImageHash | None:
+        if path.name == "a.jpg":
+            return hash_a
+        if path.name == "b.jpg":
+            return hash_b
+        return hash_c
+
+    monkeypatch.setattr("duplicate._photo_phash", fake_phash)
+
+    groups = find_burst_groups([photo_a, photo_b, photo_c], config)
+    assert len(groups) == 1
+    assert groups[0]["match_type"] == "burst"
+    assert sorted(groups[0]["files"]) == sorted(
+        [str(photo_a.resolve()), str(photo_b.resolve()), str(photo_c.resolve())]
+    )
+
+
+def test_exact_duplicates_are_not_flagged_as_burst(
+    tmp_path: Path,
+    config: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import imagehash
+
+    photo_a = tmp_path / "a.jpg"
+    photo_b = tmp_path / "b.jpg"
+    photo_c = tmp_path / "c.jpg"
+    photo_a.write_bytes(MINIMAL_PNG)
+    photo_b.write_bytes(MINIMAL_PNG)
+    photo_c.write_bytes(MINIMAL_PNG)
+
+    hash_a = imagehash.ImageHash(np.zeros((8, 8), dtype=bool))
+    hash_b = imagehash.ImageHash(np.zeros((8, 8), dtype=bool))
+    c_arr = np.ones((8, 8), dtype=bool)
+    hash_c = imagehash.ImageHash(c_arr)
+
+    def fake_phash(path: Path) -> imagehash.ImageHash | None:
+        if path.name == "a.jpg":
+            return hash_a
+        if path.name == "b.jpg":
+            return hash_b
+        return hash_c
+
+    monkeypatch.setattr("duplicate._photo_phash", fake_phash)
+
+    groups = find_burst_groups([photo_a, photo_b, photo_c], config)
+    assert groups == []
 
 
 def test_pairs_normalized_lexicographically(tmp_path: Path, config: dict[str, Any]) -> None:

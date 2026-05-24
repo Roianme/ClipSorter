@@ -36,6 +36,17 @@ def test_write_report_creates_report_file(tmp_path: Path) -> None:
                 "flags": [],
             },
             {
+                "bucket": "burst",
+                "final_path": "photos/shot.jpg",
+                "original_path": "/source/shot.cr2",
+                "converted_from": ".cr2",
+                "metadata": {
+                    "Blur": "PASS",
+                    "Exposure": "PASS",
+                },
+                "flags": ["Burst group"],
+            },
+            {
                 "bucket": "skipped",
                 "final_path": "/documents/brief.pdf",
                 "original_path": "/documents/brief.pdf",
@@ -59,6 +70,7 @@ def test_write_report_creates_report_file(tmp_path: Path) -> None:
     assert "END OF REPORT" in content
     assert "[CLEAN]    videos/clip.mp4" in content
     assert "Converted from: .mov" in content
+    assert "[BURST]" in content
     assert "[SKIPPED]  /documents/brief.pdf" in content
     assert "Reason: Unsupported file type" in content
 
@@ -91,4 +103,5 @@ def test_write_report_includes_summary_counts(tmp_path: Path) -> None:
     assert "Converted to mp3:         1" in contents
     assert "Clean:" in contents
     assert "Review:" in contents
+    assert "Burst:" in contents
     assert "Rejected:" in contents

@@ -20,6 +20,9 @@ def test_setup_output_folder_creates_bucket_tree(tmp_path: Path) -> None:
     assert output.name == "TargetFolder_sorted"
     assert output.parent == tmp_path.resolve()
     for bucket in BUCKETS:
+        if bucket == "burst":
+            assert (output / bucket / TYPE_SUBFOLDERS["photo"]).is_dir()
+            continue
         for subfolder in TYPE_SUBFOLDERS.values():
             assert (output / bucket / subfolder).is_dir()
 
@@ -104,6 +107,9 @@ def test_move_file_never_touches_original_target_folder(tmp_path: Path) -> None:
 def test_move_file_all_detected_types(tmp_path: Path) -> None:
     output = tmp_path / "out_sorted"
     for bucket in BUCKETS:
+        if bucket == "burst":
+            (output / bucket / TYPE_SUBFOLDERS["photo"]).mkdir(parents=True)
+            continue
         for sub in TYPE_SUBFOLDERS.values():
             (output / bucket / sub).mkdir(parents=True)
 
@@ -120,6 +126,21 @@ def test_move_file_all_detected_types(tmp_path: Path) -> None:
         src.write_bytes(b"x")
         dest = move_file(src, bucket, detected_type, output)
         assert dest.parent == output / bucket / sub
+
+
+def test_move_file_to_burst_photo_folder(tmp_path: Path) -> None:
+    target = tmp_path / "TargetFolder"
+    target.mkdir()
+    output = setup_output_folder(target)
+
+    work = tmp_path / "work"
+    work.mkdir()
+    converted = work / "burst.jpg"
+    converted.write_bytes(b"image-bytes")
+
+    final = move_file(converted, "burst", "photo", output)
+    assert final == output / "burst" / "photos" / "burst.jpg"
+    assert final.is_file()
 
 
 def test_move_file_missing_source_raises(tmp_path: Path) -> None:

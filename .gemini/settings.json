@@ -1,12 +1,12 @@
 {
   "mcpServers": {
     "vecfs": {
-    "command": "cmd",
-    "args": ["/c", "C:\\Program Files\\nodejs\\vecfs.cmd"],
-    "env": {
-      "VECFS_FILE": "F:\\pili\\.vecfs\\memory.jsonl"
-    }
-  },
+      "command": "C:\\Program Files\\nodejs\\vecfs.cmd",
+      "args": [],
+      "env": {
+        "VECFS_FILE": "C:\\Users\\Bogie\\.vecfs\\memory.jsonl"
+      }
+    },
     "playwright": {
       "command": "npx",
       "args": [

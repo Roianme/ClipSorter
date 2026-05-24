@@ -11,7 +11,7 @@ from classifier import Bucket
 
 logger = logging.getLogger(__name__)
 
-BUCKETS: tuple[Bucket, ...] = ("clean", "review", "rejected")
+BUCKETS: tuple[Bucket, ...] = ("clean", "review", "rejected", "burst")
 
 TYPE_SUBFOLDERS: dict[str, str] = {
     "video": "videos",
@@ -29,6 +29,9 @@ def _type_subfolder(detected_type: str) -> str:
 
 def _create_bucket_tree(output_folder: Path) -> None:
     for bucket in BUCKETS:
+        if bucket == "burst":
+            (output_folder / bucket / TYPE_SUBFOLDERS["photo"]).mkdir(parents=True, exist_ok=True)
+            continue
         for subfolder in TYPE_SUBFOLDERS.values():
             (output_folder / bucket / subfolder).mkdir(parents=True, exist_ok=True)
 
@@ -82,6 +85,8 @@ def move_file(
     """
     if bucket not in BUCKETS:
         raise ValueError(f"Invalid bucket: {bucket}")
+    if bucket == "burst" and detected_type != "photo":
+        raise ValueError("Burst bucket is only supported for photos")
 
     source = Path(converted_path)
     if not source.is_file():

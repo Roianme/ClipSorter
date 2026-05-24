@@ -222,51 +222,101 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
 
     converted_records: list[converter.ConvertedFileRecord] = []
     print("Converting formats...", end=" ")
-    for record in _progress(supported_records, desc="Converting formats", unit="file"):
-        try:
-            converted_records.append(converter.convert_file(record, config, work_dir=work_dir))
-        except Exception as exc:
-            logger.exception("Conversion failed for %s", record["original_path"])
-            skipped_entries.append(
-                {
-                    "bucket": "skipped",
-                    "final_path": _relative_path(source_folder, Path(record["original_path"])),
-                    "original_path": _relative_path(source_folder, Path(record["original_path"])),
-                    "reason": str(exc),
-                }
-            )
+    if tqdm is not None:
+        conv_iter = tqdm(supported_records, desc="Converting formats", unit="file", dynamic_ncols=True, ncols=80, ascii=True)
+        for record in conv_iter:
+            try:
+                conv_iter.set_description(f"Converting {Path(record['original_path']).name}")
+                converted_records.append(converter.convert_file(record, config, work_dir=work_dir))
+            except Exception as exc:
+                logger.exception("Conversion failed for %s", record["original_path"])
+                unsupported_entries.append(
+                    {
+                        "bucket": "skipped",
+                        "final_path": _relative_path(source_folder, Path(record["original_path"])),
+                        "original_path": _relative_path(source_folder, Path(record["original_path"])),
+                        "reason": str(exc),
+                    }
+                )
+    else:
+        for record in supported_records:
+            try:
+                converted_records.append(converter.convert_file(record, config, work_dir=work_dir))
+            except Exception as exc:
+                logger.exception("Conversion failed for %s", record["original_path"])
+                unsupported_entries.append(
+                    {
+                        "bucket": "skipped",
+                        "final_path": _relative_path(source_folder, Path(record["original_path"])),
+                        "original_path": _relative_path(source_folder, Path(record["original_path"])),
+                        "reason": str(exc),
+                    }
+                )
     print("Done")
 
     qc_results: dict[str, dict[str, Any]] = {}
     print("Running QC checks...", end=" ")
-    for record in _progress(converted_records, desc="Running QC checks", unit="file"):
-        converted_path = record.get("converted_path")
-        if not converted_path or record.get("skipped"):
-            continue
-        try:
-            if record["detected_type"] == "video":
-                qc_results[converted_path] = analyze_video(converted_path, config)
-            elif record["detected_type"] == "photo":
-                qc_results[converted_path] = analyze_photo(converted_path, config)
-            elif record["detected_type"] == "audio":
-                qc_results[converted_path] = analyze_audio(converted_path, config)
-            else:
+    if tqdm is not None:
+        qc_iter = tqdm(converted_records, desc="Running QC checks", unit="file", dynamic_ncols=True, ncols=80, ascii=True)
+        for record in qc_iter:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                qc_iter.set_description("QC skipped")
+                continue
+            try:
+                qc_iter.set_description(f"QC {Path(converted_path).name}")
+                if record["detected_type"] == "video":
+                    qc_results[converted_path] = analyze_video(converted_path, config)
+                elif record["detected_type"] == "photo":
+                    qc_results[converted_path] = analyze_photo(converted_path, config)
+                elif record["detected_type"] == "audio":
+                    qc_results[converted_path] = analyze_audio(converted_path, config)
+                else:
+                    qc_results[converted_path] = {
+                        "duration_check": "pass",
+                        "blur_check": "pass",
+                        "exposure_check": "pass",
+                        "shake_check": "pass",
+                        "reasons": [],
+                    }
+            except Exception:
+                logger.exception("QC failed for %s", converted_path)
                 qc_results[converted_path] = {
-                    "duration_check": "pass",
-                    "blur_check": "pass",
-                    "exposure_check": "pass",
-                    "shake_check": "pass",
-                    "reasons": [],
+                    "duration_check": "review",
+                    "blur_check": "review",
+                    "exposure_check": "review",
+                    "shake_check": "review",
+                    "reasons": ["QC analysis failed"],
                 }
-        except Exception:
-            logger.exception("QC failed for %s", converted_path)
-            qc_results[converted_path] = {
-                "duration_check": "review",
-                "blur_check": "review",
-                "exposure_check": "review",
-                "shake_check": "review",
-                "reasons": ["QC analysis failed"],
-            }
+    else:
+        for record in converted_records:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                continue
+            try:
+                if record["detected_type"] == "video":
+                    qc_results[converted_path] = analyze_video(converted_path, config)
+                elif record["detected_type"] == "photo":
+                    qc_results[converted_path] = analyze_photo(converted_path, config)
+                elif record["detected_type"] == "audio":
+                    qc_results[converted_path] = analyze_audio(converted_path, config)
+                else:
+                    qc_results[converted_path] = {
+                        "duration_check": "pass",
+                        "blur_check": "pass",
+                        "exposure_check": "pass",
+                        "shake_check": "pass",
+                        "reasons": [],
+                    }
+            except Exception:
+                logger.exception("QC failed for %s", converted_path)
+                qc_results[converted_path] = {
+                    "duration_check": "review",
+                    "blur_check": "review",
+                    "exposure_check": "review",
+                    "shake_check": "review",
+                    "reasons": ["QC analysis failed"],
+                }
     print("Done")
 
     photo_paths = [r["converted_path"] for r in converted_records if r.get("converted_path") and r["detected_type"] == "photo"]
@@ -276,65 +326,146 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
     duplicate_pairs = []
     print("Detecting duplicates...", end=" ")
     if tqdm is not None:
-        for _ in _progress([None], desc="Detecting duplicates", total=1, unit="stage"):
-            pass
-    try:
-        duplicate_pairs = duplicate.find_duplicates(
-            photo_paths=photo_paths,
-            video_paths=video_paths,
-            audio_paths=audio_paths,
-            config=config,
-        )
-    except Exception:
-        logger.exception("Duplicate detection failed")
-    print(f"Done — {len(duplicate_pairs)} duplicate pairs found")
-
-    classifications: dict[str, classifier.ClassifierResult] = {}
-    print("Classifying files...", end=" ")
-    for record in _progress(converted_records, desc="Classifying files", unit="file"):
-        converted_path = record.get("converted_path")
-        if not converted_path or record.get("skipped"):
-            continue
-        qc_result = qc_results.get(converted_path)
-        if qc_result is None:
-            qc_result = {
-                "duration_check": "pass",
-                "blur_check": "pass",
-                "exposure_check": "pass",
-                "shake_check": "pass",
-                "reasons": [],
-            }
+        with tqdm(total=1, desc="Detecting duplicates", dynamic_ncols=True, ncols=80, ascii=True) as dup_bar:
+            try:
+                duplicate_pairs = duplicate.find_duplicates(
+                    photo_paths=photo_paths,
+                    video_paths=video_paths,
+                    audio_paths=audio_paths,
+                    config=config,
+                )
+            except Exception:
+                logger.exception("Duplicate detection failed")
+            dup_bar.update(1)
+    else:
         try:
-            classifications[converted_path] = classifier.classify_file(
-                qc_result,
-                duplicate_pairs,
-                converted_path,
+            duplicate_pairs = duplicate.find_duplicates(
+                photo_paths=photo_paths,
+                video_paths=video_paths,
+                audio_paths=audio_paths,
                 config=config,
             )
         except Exception:
-            logger.exception("Classification failed for %s", converted_path)
-            classifications[converted_path] = {"bucket": "review", "reasons": ["Classification failed"]}
+            logger.exception("Duplicate detection failed")
+    print(f"Done — {len(duplicate_pairs)} duplicate pairs found")
+
+    burst_groups: list[dict[str, Any]] = []
+    print("Detecting burst groups...", end=" ")
+    if tqdm is not None:
+        with tqdm(total=1, desc="Detecting burst groups", dynamic_ncols=True, ncols=80, ascii=True) as burst_bar:
+            try:
+                burst_groups = duplicate.find_burst_groups(photo_paths, config)
+            except Exception:
+                logger.exception("Burst detection failed")
+            burst_bar.update(1)
+    else:
+        try:
+            burst_groups = duplicate.find_burst_groups(photo_paths, config)
+        except Exception:
+            logger.exception("Burst detection failed")
+    print(f"Done — {len(burst_groups)} burst groups found")
+
+    classifications: dict[str, classifier.ClassifierResult] = {}
+    print("Classifying files...", end=" ")
+    if tqdm is not None:
+        cls_iter = tqdm(converted_records, desc="Classifying files", unit="file", dynamic_ncols=True, ncols=80, ascii=True)
+        for record in cls_iter:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                cls_iter.set_description("Classifying skipped")
+                continue
+            qc_result = qc_results.get(converted_path)
+            if qc_result is None:
+                qc_result = {
+                    "duration_check": "pass",
+                    "blur_check": "pass",
+                    "exposure_check": "pass",
+                    "shake_check": "pass",
+                    "reasons": [],
+                }
+            try:
+                cls_iter.set_description(f"Classifying {Path(converted_path).name}")
+                classifications[converted_path] = classifier.classify_file(
+                    qc_result,
+                    duplicate_pairs,
+                    converted_path,
+                    config=config,
+                    burst_groups=burst_groups,
+                )
+            except Exception:
+                logger.exception("Classification failed for %s", converted_path)
+                classifications[converted_path] = {"bucket": "review", "reasons": ["Classification failed"]}
+    else:
+        for record in converted_records:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                continue
+            qc_result = qc_results.get(converted_path)
+            if qc_result is None:
+                qc_result = {
+                    "duration_check": "pass",
+                    "blur_check": "pass",
+                    "exposure_check": "pass",
+                    "shake_check": "pass",
+                    "reasons": [],
+                }
+            try:
+                classifications[converted_path] = classifier.classify_file(
+                    qc_result,
+                    duplicate_pairs,
+                    converted_path,
+                    config=config,
+                    burst_groups=burst_groups,
+                )
+            except Exception:
+                logger.exception("Classification failed for %s", converted_path)
+                classifications[converted_path] = {"bucket": "review", "reasons": ["Classification failed"]}
     print("Done")
 
     print("Moving files...", end=" ")
     moved_paths: dict[str, str] = {}
-    for record in _progress(converted_records, desc="Moving files", unit="file"):
-        converted_path = record.get("converted_path")
-        if not converted_path or record.get("skipped"):
-            continue
-        classification = classifications.get(converted_path)
-        if classification is None:
-            continue
-        try:
-            destination = mover.move_file(
-                converted_path,
-                classification["bucket"],
-                record["detected_type"],
-                output_root,
-            )
-            moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
-        except Exception:
-            logger.exception("Moving failed for %s", converted_path)
+    if tqdm is not None:
+        mv_iter = tqdm(converted_records, desc="Moving files", unit="file", dynamic_ncols=True, ncols=80, ascii=True)
+        for record in mv_iter:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                mv_iter.set_description("Moving skipped")
+                continue
+            classification = classifications.get(converted_path)
+            if classification is None:
+                continue
+            try:
+                if classification["bucket"] == "burst":
+                    mv_iter.set_description(f"Moving burst file {Path(converted_path).name}")
+                else:
+                    mv_iter.set_description(f"Moving {Path(converted_path).name}")
+                destination = mover.move_file(
+                    converted_path,
+                    classification["bucket"],
+                    record["detected_type"],
+                    output_root,
+                )
+                moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
+            except Exception:
+                logger.exception("Moving failed for %s", converted_path)
+    else:
+        for record in converted_records:
+            converted_path = record.get("converted_path")
+            if not converted_path or record.get("skipped"):
+                continue
+            classification = classifications.get(converted_path)
+            if classification is None:
+                continue
+            try:
+                destination = mover.move_file(
+                    converted_path,
+                    classification["bucket"],
+                    record["detected_type"],
+                    output_root,
+                )
+                moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
+            except Exception:
+                logger.exception("Moving failed for %s", converted_path)
     print("Done")
 
     report_data = {
@@ -353,6 +484,7 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
         "results": {
             "clean": sum(1 for bucket in classifications.values() if bucket["bucket"] == "clean"),
             "review": sum(1 for bucket in classifications.values() if bucket["bucket"] == "review"),
+            "burst": sum(1 for bucket in classifications.values() if bucket["bucket"] == "burst"),
             "rejected": sum(1 for bucket in classifications.values() if bucket["bucket"] == "rejected"),
         },
         "entries": _build_report_entries(
@@ -366,7 +498,13 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
         ),
     }
 
-    report_path = reporter.write_report(output_root, report_data)
+    print("Writing report...", end=" ")
+    if tqdm is not None:
+        with tqdm(total=1, desc="Writing report", dynamic_ncols=True, ncols=80, ascii=True) as rep_bar:
+            report_path = reporter.write_report(output_root, report_data)
+            rep_bar.update(1)
+    else:
+        report_path = reporter.write_report(output_root, report_data)
     print("Done")
 
     print("")
@@ -374,6 +512,7 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
     print("DONE")
     print(f"  Clean:     {report_data['results']['clean']} files")
     print(f"  Review:    {report_data['results']['review']} files")
+    print(f"  Burst:     {report_data['results']['burst']} files")
     print(f"  Rejected:   {report_data['results']['rejected']} files")
     print(f"Report saved to: {report_path}")
     print("========================================")

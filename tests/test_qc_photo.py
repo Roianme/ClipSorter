@@ -87,6 +87,37 @@ def test_exposure_normal_is_pass(tmp_path: Path, config: dict[str, Any]) -> None
     assert result["exposure_check"] == "pass"
 
 
+def test_contrast_flat_grey_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
+    path = tmp_path / "flat_grey.jpg"
+    flat = np.full((128, 128, 3), 128, dtype=np.uint8)
+    _save_array_as_image(path, flat)
+
+    result = analyze_photo(path, config)
+    assert result["blur_check"] == "rejected"
+    assert any("contrast" in reason.lower() or "featureless" in reason.lower() for reason in result["reasons"])
+
+
+def test_contrast_lens_cap_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
+    path = tmp_path / "lens_cap.jpg"
+    lens_cap = np.full((160, 160, 3), 5, dtype=np.uint8)
+    _save_array_as_image(path, lens_cap)
+
+    result = analyze_photo(path, config)
+    assert result["blur_check"] == "rejected"
+    assert any("contrast" in reason.lower() for reason in result["reasons"])
+
+
+def test_contrast_high_variance_passes(tmp_path: Path, config: dict[str, Any]) -> None:
+    path = tmp_path / "high_contrast.jpg"
+    rng = np.random.default_rng(42)
+    varied = rng.integers(0, 256, (160, 160, 3), dtype=np.uint8)
+    _save_array_as_image(path, varied)
+
+    result = analyze_photo(path, config)
+    assert result["blur_check"] == "pass"
+    assert not any("contrast" in reason.lower() for reason in result["reasons"])
+
+
 def test_unreadable_photo_sets_review_for_checks(tmp_path: Path, config: dict[str, Any]) -> None:
     path = tmp_path / "broken.jpg"
     path.write_text("not an image", encoding="utf-8")

@@ -1,4 +1,4 @@
-"""Photo quality checks: blur and exposure."""
+"""Photo quality checks: blur, contrast, and exposure."""
 
 from __future__ import annotations
 
@@ -7,10 +7,18 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+import numpy as np
 
 from qc_video import QCResult, _laplacian_variance_gray, _mean_brightness_bgr
 
 logger = logging.getLogger(__name__)
+
+
+def _std_dev_gray(gray: np.ndarray) -> float:
+    """Compute standard deviation of pixel values in grayscale image."""
+    if gray.size == 0:
+        return 0.0
+    return float(gray.std())
 
 
 def analyze_photo(path: Path | str, config: dict[str, Any]) -> QCResult:
@@ -43,6 +51,14 @@ def analyze_photo(path: Path | str, config: dict[str, Any]) -> QCResult:
         )
     else:
         blur_check = "pass"
+
+    contrast_value = _std_dev_gray(gray)
+    contrast_threshold = float(config["contrast_threshold"])
+    if contrast_value < contrast_threshold:
+        blur_check = "rejected"
+        reasons.append(
+            f"Contrast: standard deviation {contrast_value:.2f} below threshold {contrast_threshold} (featureless image)",
+        )
 
     mean_brightness = _mean_brightness_bgr(frame)
     low = int(config["exposure_low_threshold"])

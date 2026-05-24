@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as _FuturesTimeout
 
 from scanner import FileRecord
 
@@ -191,22 +192,42 @@ def _convert_photo_pillow(source: Path, dest: Path) -> bool:
         return False
 
 
+def _rawpy_postprocess_worker(source_path: str, dest_path: str) -> bool:
+    """Worker function run in a separate process to postprocess RAW images."""
+    import rawpy
+    from PIL import Image
+    with rawpy.imread(source_path) as raw:
+        rgb = raw.postprocess()
+    Image.fromarray(rgb).save(dest_path, "JPEG", quality=95)
+    return True
+
+
 def _convert_photo_raw(source: Path, dest: Path) -> bool:
     try:
-        import rawpy
-        from PIL import Image
+        import rawpy  # noqa: F401
+        from PIL import Image  # noqa: F401
     except ImportError as exc:
         logger.warning("rawpy/Pillow not available for %s: %s; trying Pillow fallback", source, exc)
         return _convert_photo_pillow(source, dest)
 
+    # Run rawpy.postprocess in a separate process with a timeout to avoid hangs.
     try:
-        with rawpy.imread(str(source)) as raw:
-            rgb = raw.postprocess()
-        Image.fromarray(rgb).save(dest, "JPEG", quality=95)
-        return dest.is_file()
+        with ProcessPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_rawpy_postprocess_worker, str(source), str(dest))
+            try:
+                future.result(timeout=30)
+            except _FuturesTimeout:
+                logger.warning("rawpy.postprocess timed out for %s; falling back to Pillow", source)
+                future.cancel()
+                return _convert_photo_pillow(source, dest)
+            except Exception as exc:
+                logger.warning("rawpy failed for %s: %s; trying Pillow fallback", source, exc)
+                return _convert_photo_pillow(source, dest)
     except Exception as exc:
-        logger.warning("rawpy failed for %s: %s; trying Pillow fallback", source, exc)
+        logger.warning("rawpy multiprocessing failed for %s: %s; trying Pillow fallback", source, exc)
         return _convert_photo_pillow(source, dest)
+
+    return dest.is_file()
 
 
 def _convert_photo(source: Path, dest: Path, extension: str) -> bool:
