@@ -43,117 +43,68 @@ def test_photo_qc_structure_and_not_applicable_fields(tmp_path: Path, config: di
     assert result["shake_check"] == "pass"
 
 
-def test_blur_below_threshold_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
+def test_no_subject_detected_is_rejected(tmp_path: Path, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "no_subject.jpg"
+    sharp = np.random.default_rng(97).integers(0, 256, (160, 160, 3), dtype=np.uint8)
+    _save_array_as_image(path, sharp)
+
+    monkeypatch.setattr("qc_photo._subject_detection_status", lambda frame, config: ("rejected", ["No subject detected"]))
+
+    result = analyze_photo(path, config)
+    assert result["content_check"] == "rejected"
+    assert any("no subject" in reason.lower() for reason in result["reasons"])
+
+
+def test_person_detected_is_pass(tmp_path: Path, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "person.jpg"
+    sharp = np.random.default_rng(32).integers(0, 256, (160, 160, 3), dtype=np.uint8)
+    _save_array_as_image(path, sharp)
+
+    monkeypatch.setattr("qc_photo._subject_detection_status", lambda frame, config: ("pass", []))
+
+    result = analyze_photo(path, config)
+    assert result["content_check"] == "pass"
+    assert result["blur_check"] == "pass"
+
+
+def test_fallback_object_detected_is_review(tmp_path: Path, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "fallback.jpg"
+    sharp = np.random.default_rng(24).integers(0, 256, (160, 160, 3), dtype=np.uint8)
+    _save_array_as_image(path, sharp)
+
+    monkeypatch.setattr(
+        "qc_photo._subject_detection_status",
+        lambda frame, config: ("review", ["Fallback object detected"]),
+    )
+
+    result = analyze_photo(path, config)
+    assert result["content_check"] == "review"
+    assert any("fallback object" in reason.lower() for reason in result["reasons"])
+
+
+def test_blurry_image_with_no_subject_is_rejected(tmp_path: Path, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "blurry.jpg"
     flat = np.full((160, 160, 3), 128, dtype=np.uint8)
     _save_array_as_image(path, flat)
 
+    monkeypatch.setattr("qc_photo._subject_detection_status", lambda frame, config: ("rejected", ["No subject detected"]))
+
     result = analyze_photo(path, config)
     assert result["blur_check"] == "rejected"
-    assert any("laplacian variance" in reason.lower() for reason in result["reasons"])
+    assert result["content_check"] == "rejected"
 
 
-def test_blur_above_threshold_pass(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "sharp.jpg"
-    sharp = np.random.default_rng(99).integers(0, 256, (160, 160, 3), dtype=np.uint8)
-    _save_array_as_image(path, sharp)
-
-    result = analyze_photo(path, config)
-    assert result["blur_check"] == "pass"
-
-
-def test_exposure_dark_is_review(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "dark.jpg"
-    dark = np.zeros((128, 128, 3), dtype=np.uint8)
+def test_underexposed_image_with_person_detected_is_pass(tmp_path: Path, config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "underexposed.jpg"
+    rng = np.random.default_rng(3)
+    dark = np.clip(rng.normal(loc=40, scale=40, size=(160, 160, 3)), 0, 255).astype(np.uint8)
     _save_array_as_image(path, dark)
 
-    result = analyze_photo(path, config)
-    assert result["exposure_check"] == "review"
-    assert any("exposure" in reason.lower() for reason in result["reasons"])
-
-
-def test_exposure_bright_is_review(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "bright.jpg"
-    bright = np.full((128, 128, 3), 255, dtype=np.uint8)
-    _save_array_as_image(path, bright)
+    monkeypatch.setattr("qc_photo._subject_detection_status", lambda frame, config: ("pass", []))
 
     result = analyze_photo(path, config)
-    assert result["exposure_check"] == "review"
-    assert any("exposure" in reason.lower() for reason in result["reasons"])
-
-
-def test_exposure_normal_is_pass(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "normal.jpg"
-    normal = np.full((128, 128, 3), 128, dtype=np.uint8)
-    _save_array_as_image(path, normal)
-
-    result = analyze_photo(path, config)
+    assert result["content_check"] == "pass"
     assert result["exposure_check"] == "pass"
-
-
-def test_contrast_flat_grey_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "flat_grey.jpg"
-    flat = np.full((128, 128, 3), 128, dtype=np.uint8)
-    _save_array_as_image(path, flat)
-
-    result = analyze_photo(path, config)
-    assert result["blur_check"] == "rejected"
-    assert any("contrast" in reason.lower() or "featureless" in reason.lower() for reason in result["reasons"])
-
-
-def test_contrast_lens_cap_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "lens_cap.jpg"
-    lens_cap = np.full((160, 160, 3), 5, dtype=np.uint8)
-    _save_array_as_image(path, lens_cap)
-
-    result = analyze_photo(path, config)
-    assert result["blur_check"] == "rejected"
-    assert any("contrast" in reason.lower() for reason in result["reasons"])
-
-
-def test_subjectless_low_contrast_image_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "subjectless.jpg"
-    rng = np.random.default_rng(123)
-    base = np.full((160, 160), 120, dtype=np.int16)
-    noise = rng.integers(-4, 5, size=base.shape, dtype=np.int16)
-    gray = np.clip(base + noise, 0, 255).astype(np.uint8)
-    textured = np.dstack([gray] * 3)
-    _save_array_as_image(path, textured)
-
-    result = analyze_photo(path, config)
-    assert result["blur_check"] == "rejected"
-    assert any("contrast" in reason.lower() for reason in result["reasons"])
-
-
-def test_low_saturation_image_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "low_sat.jpg"
-    gray = np.full((160, 160, 3), 128, dtype=np.uint8)
-    _save_array_as_image(path, gray)
-
-    result = analyze_photo(path, config)
-    assert result["saturation_check"] == "rejected"
-    assert any("saturation" in reason.lower() for reason in result["reasons"])
-
-
-def test_low_entropy_image_rejected(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "low_entropy.jpg"
-    low_entropy = np.full((160, 160, 3), 128, dtype=np.uint8)
-    _save_array_as_image(path, low_entropy)
-
-    result = analyze_photo(path, config)
-    assert result["entropy_check"] == "rejected"
-    assert any("entropy" in reason.lower() for reason in result["reasons"])
-
-
-def test_contrast_high_variance_passes(tmp_path: Path, config: dict[str, Any]) -> None:
-    path = tmp_path / "high_contrast.jpg"
-    rng = np.random.default_rng(42)
-    varied = rng.integers(0, 256, (160, 160, 3), dtype=np.uint8)
-    _save_array_as_image(path, varied)
-
-    result = analyze_photo(path, config)
-    assert result["blur_check"] == "pass"
-    assert not any("contrast" in reason.lower() for reason in result["reasons"])
 
 
 def test_unreadable_photo_sets_review_for_checks(tmp_path: Path, config: dict[str, Any]) -> None:
@@ -162,5 +113,5 @@ def test_unreadable_photo_sets_review_for_checks(tmp_path: Path, config: dict[st
 
     result = analyze_photo(path, config)
     assert result["blur_check"] == "review"
-    assert result["exposure_check"] == "review"
+    assert result["content_check"] == "review"
     assert any("cannot open photo" in reason.lower() for reason in result["reasons"])

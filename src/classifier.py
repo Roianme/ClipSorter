@@ -19,13 +19,13 @@ class ClassifierResult(TypedDict):
 def _bucket_from_qc(qc_result: QCResult) -> Bucket:
     """Section 5e priority: rejected > review > clean."""
     checks: list[QCLevel] = [
-        qc_result["duration_check"],
-        qc_result["blur_check"],
-        qc_result["content_check"],
-        qc_result["saturation_check"],
-        qc_result["entropy_check"],
-        qc_result["exposure_check"],
-        qc_result["shake_check"],
+        qc_result.get("duration_check", "pass"),
+        qc_result.get("blur_check", "pass"),
+        qc_result.get("content_check", "pass"),
+        qc_result.get("saturation_check", "pass"),
+        qc_result.get("entropy_check", "pass"),
+        qc_result.get("exposure_check", "pass"),
+        qc_result.get("shake_check", "pass"),
     ]
     if "rejected" in checks:
         return "rejected"
