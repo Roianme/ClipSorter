@@ -1,4 +1,7 @@
-"""Video quality checks: duration, blur, exposure, shake."""
+"""Video quality checks: find at least 5 consecutive seconds of a steady, not blurry, well-exposed shot.
+
+Only two outcomes for video: "pass" (usable) or "rejected" (defects).
+"""
 
 from __future__ import annotations
 
@@ -12,11 +15,18 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-QCLevel = Literal["pass", "review", "rejected"]
+QCLevel = Literal["pass", "rejected"]
+
+# General QCResult that covers all media types.
+# Video uses: duration_check, steady_shot_check
+# Photo uses: duration_check, blur_check, content_check, saturation_check,
+#             entropy_check, exposure_check, shake_check
+# Audio uses: duration_check, exposure_check (silence)
 
 
-class QCResult(TypedDict):
+class QCResult(TypedDict, total=False):
     duration_check: QCLevel
+    steady_shot_check: QCLevel
     blur_check: QCLevel
     content_check: QCLevel
     saturation_check: QCLevel
@@ -79,7 +89,10 @@ def _read_sampled_frames(
     duration_sec: float | None,
     sample_count: int,
 ) -> tuple[list[np.ndarray] | None, str | None]:
-    """Return list of BGR frames or None if OpenCV cannot read."""
+    """Return list of BGR frames or None if OpenCV cannot read.
+
+    Retained for duplicate detection in video pipeline.
+    """
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         logger.warning("OpenCV cannot open video: %s", path)
@@ -115,86 +128,132 @@ def _read_sampled_frames(
 
 
 def _mean_brightness_bgr(frame: np.ndarray) -> float:
+    """Mean brightness of a BGR frame. Retained for debug_image_metrics."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     return float(gray.mean())
 
 
-def _blur_ratio(frames: list[np.ndarray], blur_threshold: float) -> float:
-    blurry = 0
-    for frame in frames:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if _laplacian_variance_gray(gray) < blur_threshold:
-            blurry += 1
-    return blurry / len(frames) if frames else 0.0
-
-
-def _exposure_fail_ratio(
-    frames: list[np.ndarray],
-    low: int,
-    high: int,
-) -> float:
-    failed = 0
-    for frame in frames:
-        mean = _mean_brightness_bgr(frame)
-        if mean < low or mean > high:
-            failed += 1
-    return failed / len(frames) if frames else 0.0
-
-
-def _shake_mean_flow_magnitude(frames: list[np.ndarray]) -> float | None:
-    """Mean optical-flow magnitude averaged over consecutive frame pairs; None if not computable."""
-    if len(frames) < 2:
+def _read_frames_for_window(
+    path: Path,
+    start_sec: float,
+    window_duration_sec: float,
+    fps: float = 30.0,
+) -> list[np.ndarray] | None:
+    """Read frames from start_sec for window_duration_sec at ~fps."""
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        logger.warning("OpenCV cannot open video: %s", path)
         return None
 
-    pair_means: list[float] = []
-    prev_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
-    for next_frame in frames[1:]:
-        gray = cv2.cvtColor(next_frame, cv2.COLOR_BGR2GRAY)
-        flow = cv2.calcOpticalFlowFarneback(
-            prev_gray,
-            gray,
-            None,
-            pyr_scale=0.5,
-            levels=3,
-            winsize=15,
-            iterations=3,
-            poly_n=5,
-            poly_sigma=1.2,
-            flags=0,
-        )
-        mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-        pair_means.append(float(mag.mean()))
-        prev_gray = gray
+    frames: list[np.ndarray] = []
+    try:
+        total_frames = int(window_duration_sec * fps)
+        for i in range(total_frames):
+            t = start_sec + i / fps
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            frames.append(frame)
+    finally:
+        cap.release()
 
-    return float(np.mean(pair_means)) if pair_means else None
+    # Require at least 50% of expected frames
+    min_frames = max(5, int(window_duration_sec * fps * 0.5))
+    if len(frames) < min_frames:
+        return None
+    return frames
 
 
-def _ratio_check(
-    ratio: float,
-    reject_ratio: float,
-    review_ratio: float,
-) -> QCLevel:
-    if ratio > reject_ratio:
-        return "rejected"
-    if ratio > review_ratio:
-        return "review"
-    return "pass"
+def _shake_magnitude_for_pair(prev_gray: np.ndarray, gray: np.ndarray) -> float:
+    """Mean optical-flow magnitude between two consecutive grayscale frames."""
+    flow = cv2.calcOpticalFlowFarneback(
+        prev_gray,
+        gray,
+        None,
+        pyr_scale=0.5,
+        levels=3,
+        winsize=15,
+        iterations=3,
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0,
+    )
+    mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+    return float(mag.mean())
+
+
+def _window_has_steady_shot(
+    frames: list[np.ndarray],
+    blur_threshold: float,
+    exposure_low: int,
+    exposure_high: int,
+    shake_threshold: float,
+) -> bool:
+    """
+    Check if frames contain at least 5 contiguous frames where every frame is
+    simultaneously: not blurry, well-exposed, and not shaky with neighbours.
+
+    At ~30fps read rate, 5 frames ≈ 5 seconds (since we advance by 1 sec).
+    """
+    if len(frames) < 5:
+        return False
+
+    grays = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames]
+    n = len(frames)
+
+    # Per-frame quality flag: sharp + exposed
+    frame_ok = []
+    for i in range(n):
+        lap_var = _laplacian_variance_gray(grays[i])
+        brightness = float(grays[i].mean())
+        is_sharp = lap_var >= blur_threshold
+        is_exposed = exposure_low <= brightness <= exposure_high
+        frame_ok.append(is_sharp and is_exposed)
+
+    # Shake check between consecutive frame pairs
+    shake_ok = [True] * (n - 1)  # index i = transition between frame i and i+1
+    for i in range(n - 1):
+        mag = _shake_magnitude_for_pair(grays[i], grays[i + 1])
+        shake_ok[i] = mag <= shake_threshold
+
+    # Find longest contiguous run where:
+    #   - each frame passes frame_ok
+    #   - the transition INTO the frame is shake_ok (if not first)
+    longest_run = 0
+    current_run = 0
+    for i in range(n):
+        transition_ok = (i == 0) or shake_ok[i - 1]
+        if frame_ok[i] and transition_ok:
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+
+    # Require at least 5 consecutive good frames
+    MIN_GOOD_FRAMES = 5
+    return longest_run >= MIN_GOOD_FRAMES
 
 
 def analyze_video(path: Path | str, config: dict[str, Any]) -> QCResult:
     """
-    Run all video QC checks on a file (typically converted .mp4).
+    Determine if a video clip has at least 5 consecutive seconds of a steady,
+    non-blurry, well-exposed shot.
 
-    OpenCV open/read failures set blur, exposure, and shake to review (per project rules).
+    Returns:
+        QCResult with:
+            duration_check: "pass" if >= min duration, else "rejected"
+            steady_shot_check: "pass" if steady shot found, else "rejected"
     """
     video_path = Path(path)
     reasons: list[str] = []
 
+    # --- Duration check ---
     duration_sec = _run_ffprobe_duration_seconds(video_path)
     min_sec = float(config["min_video_duration_sec"])
 
     if duration_sec is None:
-        duration_check: QCLevel = "review"
+        duration_check: QCLevel = "rejected"
         reasons.append("Could not read duration (ffprobe failed or missing metadata)")
     elif duration_sec < min_sec:
         duration_check = "rejected"
@@ -204,71 +263,52 @@ def analyze_video(path: Path | str, config: dict[str, Any]) -> QCResult:
     else:
         duration_check = "pass"
 
-    sample_count = int(config["frame_sample_count"])
-    frames, frame_error = _read_sampled_frames(video_path, duration_sec, sample_count)
-
-    blur_check: QCLevel
-    exposure_check: QCLevel
-    shake_check: QCLevel
-
-    if frames is None:
-        blur_check = exposure_check = shake_check = "review"
-        if frame_error:
-            reasons.append(frame_error)
-    else:
-        blur_r = _blur_ratio(frames, float(config["blur_threshold"]))
-        blur_check = _ratio_check(
-            blur_r,
-            float(config["blur_reject_ratio"]),
-            float(config["blur_review_ratio"]),
+    if duration_check == "rejected":
+        return QCResult(
+            duration_check=duration_check,
+            steady_shot_check="rejected",
+            reasons=reasons,
         )
-        if blur_check == "rejected":
-            reasons.append(
-                f"Blur: {100.0 * blur_r:.1f}% of sampled frames below Laplacian threshold "
-                f"{config['blur_threshold']}",
-            )
-        elif blur_check == "review":
-            reasons.append(
-                f"Blur: {100.0 * blur_r:.1f}% of frames blurry (review band)",
-            )
 
-        exp_r = _exposure_fail_ratio(
+    # --- Steady shot check: scan sliding 5-second windows ---
+    blur_threshold = float(config["blur_threshold"])
+    exposure_low = int(config["exposure_low_threshold"])
+    exposure_high = int(config["exposure_high_threshold"])
+    shake_threshold = float(config["shake_threshold"])
+    window_sec = 5.0
+    slide_step = 1.0  # slide by 1 second each iteration
+
+    steady_shot_found = False
+    current_start = 0.0
+
+    while current_start + window_sec <= duration_sec:
+        frames = _read_frames_for_window(video_path, current_start, window_sec)
+        if frames is None:
+            current_start += slide_step
+            continue
+
+        if _window_has_steady_shot(
             frames,
-            int(config["exposure_low_threshold"]),
-            int(config["exposure_high_threshold"]),
-        )
-        exposure_check = _ratio_check(
-            exp_r,
-            float(config["exposure_reject_ratio"]),
-            float(config["exposure_review_ratio"]),
-        )
-        if exposure_check == "rejected":
-            reasons.append(
-                f"Exposure: {100.0 * exp_r:.1f}% of frames under/over thresholds "
-                f"({config['exposure_low_threshold']}/{config['exposure_high_threshold']})",
-            )
-        elif exposure_check == "review":
-            reasons.append(f"Exposure: {100.0 * exp_r:.1f}% of frames fail (review band)")
+            blur_threshold,
+            exposure_low,
+            exposure_high,
+            shake_threshold,
+        ):
+            steady_shot_found = True
+            break
 
-        flow_mean = _shake_mean_flow_magnitude(frames)
-        if flow_mean is None:
-            shake_check = "pass"
-        elif flow_mean > float(config["shake_threshold"]):
-            shake_check = "review"
-            reasons.append(
-                f"Shake: mean optical-flow magnitude {flow_mean:.2f} exceeds threshold "
-                f"{config['shake_threshold']}",
-            )
-        else:
-            shake_check = "pass"
+        current_start += slide_step
+
+    if steady_shot_found:
+        steady_shot_check: QCLevel = "pass"
+    else:
+        steady_shot_check = "rejected"
+        reasons.append(
+            "No 5-second window found with steady, sharp, well-exposed shot"
+        )
 
     return QCResult(
         duration_check=duration_check,
-        blur_check=blur_check,
-        content_check="pass",
-        saturation_check="pass",
-        entropy_check="pass",
-        exposure_check=exposure_check,
-        shake_check=shake_check,
+        steady_shot_check=steady_shot_check,
         reasons=reasons,
     )

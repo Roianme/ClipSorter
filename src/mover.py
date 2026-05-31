@@ -20,6 +20,12 @@ BUCKET_TO_OUTPUT: dict[Bucket, str] = {
     "rejected": "defects",
 }
 
+# Video only uses usable/ and defects/ (no review, no burst)
+VIDEO_BUCKET_TO_OUTPUT: dict[Bucket, str] = {
+    "clean": "usable",
+    "rejected": "defects",
+}
+
 TYPE_SUBFOLDERS: dict[str, str] = {
     "video": "videos",
     "photo": "photos",
@@ -87,9 +93,27 @@ def move_file(
     """
     Move a converted file from temp work dir into bucket/type subfolder.
 
+    Video only uses usable/ and defects/ (2 folders).
+    Photo/audio use the full bucket system (usable, review, usable/burst, defects).
     Never overwrites an existing file; appends _1, _2, ... on collision.
     Does not modify the original TargetFolder.
     """
+    if detected_type == "video":
+        if bucket not in ("clean", "rejected"):
+            raise ValueError(f"Video only supports clean or rejected buckets, got: {bucket}")
+        source = Path(converted_path)
+        if not source.is_file():
+            raise FileNotFoundError(f"Converted file not found: {source}")
+        root = Path(output_folder).resolve()
+        output_bucket = VIDEO_BUCKET_TO_OUTPUT[bucket]
+        dest_dir = root / output_bucket / _type_subfolder(detected_type)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        destination = _allocate_destination(dest_dir, source.name)
+        shutil.move(str(source), str(destination))
+        logger.info("Moved %s -> %s", source, destination)
+        return destination.resolve()
+
+    # Photo/audio: full bucket logic
     if bucket not in BUCKETS:
         raise ValueError(f"Invalid bucket: {bucket}")
     if bucket == "burst" and detected_type != "photo":

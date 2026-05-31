@@ -1,4 +1,8 @@
-"""Combine QC results and duplicate flags into a final bucket."""
+"""Combine QC results and duplicate flags into a final bucket.
+
+For video: only two buckets — "clean" (usable) or "rejected" (defects).
+For photo/audio: clean, review, rejected, burst.
+"""
 
 from __future__ import annotations
 
@@ -16,8 +20,20 @@ class ClassifierResult(TypedDict):
     reasons: list[str]
 
 
-def _bucket_from_qc(qc_result: QCResult) -> Bucket:
-    """Section 5e priority: rejected > review > clean."""
+def _bucket_from_qc(qc_result: QCResult, detected_type: str = "") -> Bucket:
+    """
+    Derive bucket from QC results.
+
+    For video: only "clean" (pass) or "rejected".
+    For photo/audio: rejected > review > clean.
+    """
+    if detected_type == "video":
+        steady = qc_result.get("steady_shot_check", "rejected")
+        if steady == "pass":
+            return "clean"
+        return "rejected"
+
+    # Photo/audio: original multi-level logic
     checks: list[QCLevel] = [
         qc_result.get("duration_check", "pass"),
         qc_result.get("blur_check", "pass"),
@@ -61,9 +77,13 @@ def classify_file(
     file_path: str | Path,
     config: dict[str, Any] | None = None,
     burst_groups: list[dict[str, Any]] | None = None,
+    detected_type: str = "",
 ) -> ClassifierResult:
     """
     Classify one file into clean, review, rejected, or burst.
+
+    For video: only "clean" (usable → usable/videos/) or "rejected" (defects → defects/videos/).
+    For photo/audio: full multi-level with bursts and duplicates.
 
     Duplicate pairs force review unless QC already produced rejected.
     Burst groups take priority over clean/review and duplicate review, but not rejected.
@@ -71,6 +91,15 @@ def classify_file(
     """
     _ = config
 
+    # Video: simple binary outcome regardless of duplicates/bursts
+    if detected_type == "video":
+        steady = qc_result.get("steady_shot_check", "rejected")
+        reasons = list(qc_result["reasons"])
+        if steady == "pass":
+            return ClassifierResult(bucket="clean", reasons=reasons)
+        return ClassifierResult(bucket="rejected", reasons=reasons)
+
+    # Photo/audio: full logic
     qc_bucket = _bucket_from_qc(qc_result)
     reasons = list(qc_result["reasons"])
     duplicate_reasons = _duplicate_flags(file_path, duplicate_pairs)

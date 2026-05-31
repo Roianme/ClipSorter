@@ -111,15 +111,10 @@ def _format_metadata(qc_result: dict[str, Any], detected_type: str) -> dict[str,
         metadata["Duration"] = "PASS"
 
     if detected_type == "video":
-        blur_status = qc_result["blur_check"].upper()
-        exposure_status = qc_result["exposure_check"].upper()
-        shake_status = qc_result["shake_check"].upper()
-        blur_reason = next((msg for msg in qc_result["reasons"] if msg.startswith("Blur:")), None)
-        exposure_reason = next((msg for msg in qc_result["reasons"] if msg.startswith("Exposure:")), None)
-        shake_reason = next((msg for msg in qc_result["reasons"] if msg.startswith("Shake:")), None)
-        metadata["Blur"] = blur_status if blur_reason is None else f"{blur_status} ({blur_reason[len('Blur: '):]})"
-        metadata["Exposure"] = exposure_status if exposure_reason is None else f"{exposure_status} ({exposure_reason[len('Exposure: '):]})"
-        metadata["Shake"] = shake_status if shake_reason is None else f"{shake_status} ({shake_reason[len('Shake: '):]})"
+        steady_status = qc_result.get("steady_shot_check", "rejected").upper()
+        reasons = qc_result.get("reasons", [])
+        steady_reason = next((msg for msg in reasons if "steady" in msg.lower() or "5-second" in msg.lower() or "window" in msg.lower()), None)
+        metadata["SteadyShot"] = steady_status if steady_reason is None else f"{steady_status} ({steady_reason})"
     elif detected_type == "photo":
         blur_status = qc_result["blur_check"].upper()
         exposure_status = qc_result["exposure_check"].upper()
@@ -148,8 +143,8 @@ def _run_qc_check(record: converter.ConvertedFileRecord, config: dict[str, Any])
     if not converted_path or record.get("skipped"):
         return converted_path or "", {}
     
-    image_array = record.get("image_array")
-    
+        image_array = record.get("image_array")
+
     try:
         if record["detected_type"] == "video":
             return converted_path, analyze_video(converted_path, config)
@@ -170,6 +165,12 @@ def _run_qc_check(record: converter.ConvertedFileRecord, config: dict[str, Any])
             }
     except Exception:
         logger.exception("QC failed for %s", converted_path)
+        if record.get("detected_type") == "video":
+            return converted_path, {
+                "duration_check": "rejected",
+                "steady_shot_check": "rejected",
+                "reasons": ["QC analysis failed"],
+            }
         return converted_path, {
             "duration_check": "review",
             "blur_check": "review",
@@ -187,14 +188,23 @@ def _run_classifier_check(record: converter.ConvertedFileRecord, qc_results: dic
     
     qc_result = qc_results.get(converted_path)
     if qc_result is None:
-        qc_result = {
-            "duration_check": "pass",
-            "blur_check": "pass",
-            "exposure_check": "pass",
-            "shake_check": "pass",
-            "reasons": [],
-        }
+        detected_type = record.get("detected_type", "")
+        if detected_type == "video":
+            qc_result = {
+                "duration_check": "pass",
+                "steady_shot_check": "pass",
+                "reasons": [],
+            }
+        else:
+            qc_result = {
+                "duration_check": "pass",
+                "blur_check": "pass",
+                "exposure_check": "pass",
+                "shake_check": "pass",
+                "reasons": [],
+            }
     
+    detected_type = record.get("detected_type", "")
     try:
         return converted_path, classifier.classify_file(
             qc_result,
@@ -202,10 +212,12 @@ def _run_classifier_check(record: converter.ConvertedFileRecord, qc_results: dic
             converted_path,
             config=config,
             burst_groups=burst_groups,
+            detected_type=detected_type,
         )
     except Exception:
         logger.exception("Classification failed for %s", converted_path)
-        return converted_path, {"bucket": "review", "reasons": ["Classification failed"]}
+        fallback_bucket = "rejected" if detected_type == "video" else "review"
+        return converted_path, {"bucket": fallback_bucket, "reasons": ["Classification failed"]}
 
 
 def _choose_best_burst_representatives(
@@ -272,13 +284,21 @@ def _build_report_entries(
 
         qc_result = qc_results.get(str(Path(record["converted_path"])))
         classification = classifications.get(str(Path(record["converted_path"])))
-        metadata = _format_metadata(qc_result if qc_result is not None else {
-            "duration_check": "pass",
-            "blur_check": "pass",
-            "exposure_check": "pass",
-            "shake_check": "pass",
-            "reasons": [],
-        }, record["detected_type"])
+        if record["detected_type"] == "video":
+            default_qc = {
+                "duration_check": "pass",
+                "steady_shot_check": "pass",
+                "reasons": [],
+            }
+        else:
+            default_qc = {
+                "duration_check": "pass",
+                "blur_check": "pass",
+                "exposure_check": "pass",
+                "shake_check": "pass",
+                "reasons": [],
+            }
+        metadata = _format_metadata(qc_result if qc_result is not None else default_qc, record["detected_type"])
 
         entries.append(
             {
@@ -494,7 +514,7 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
                             "reasons": [],
                         })
                         try:
-                            move_bucket = classifier._bucket_from_qc(qc_res)
+                            move_bucket = classifier._bucket_from_qc(qc_res, detected_type="photo")
                         except Exception:
                             move_bucket = "clean"
                         mv_iter.set_description(f"Moving burst representative {Path(converted_path).name} -> {move_bucket}")
@@ -532,7 +552,7 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
                             "reasons": [],
                         })
                         try:
-                            move_bucket = classifier._bucket_from_qc(qc_res)
+                            move_bucket = classifier._bucket_from_qc(qc_res, detected_type="photo")
                         except Exception:
                             move_bucket = "clean"
                     else:

@@ -11,7 +11,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "min_video_duration_sec": 0,
+    "min_video_duration_sec": 5,
     "min_audio_duration_sec": 0,
     "blur_threshold": 60.0,
     "blur_reject_ratio": 0.6,

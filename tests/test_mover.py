@@ -55,7 +55,8 @@ def test_setup_output_folder_timestamp_when_exists(
     assert (output / "usable" / "videos").is_dir()
 
 
-def test_move_file_to_correct_bucket_and_type(tmp_path: Path) -> None:
+def test_video_clean_goes_to_usable_videos(tmp_path: Path) -> None:
+    """Video with bucket='clean' -> usable/videos/."""
     target = tmp_path / "TargetFolder"
     target.mkdir()
     output = setup_output_folder(target)
@@ -69,6 +70,33 @@ def test_move_file_to_correct_bucket_and_type(tmp_path: Path) -> None:
     assert final == output / "usable" / "videos" / "clip.mp4"
     assert final.is_file()
     assert not converted.exists()
+
+
+def test_video_rejected_goes_to_defects_videos(tmp_path: Path) -> None:
+    """Video with bucket='rejected' -> defects/videos/."""
+    target = tmp_path / "TargetFolder"
+    target.mkdir()
+    output = setup_output_folder(target)
+
+    work = tmp_path / "work"
+    work.mkdir()
+    converted = work / "bad.mp4"
+    converted.write_bytes(b"bad-video")
+
+    final = move_file(converted, "rejected", "video", output)
+    assert final == output / "defects" / "videos" / "bad.mp4"
+    assert final.is_file()
+
+
+def test_video_review_bucket_raises(tmp_path: Path) -> None:
+    """Video cannot be placed in review or burst bucket."""
+    output = tmp_path / "out_sorted"
+    (output / "usable" / "videos").mkdir(parents=True)
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"x")
+
+    with pytest.raises(ValueError, match="Video only supports clean or rejected"):
+        move_file(src, "review", "video", output)
 
 
 def test_move_file_collision_appends_suffix(tmp_path: Path) -> None:

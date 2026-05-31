@@ -115,7 +115,7 @@ def write_report(output_folder: Path | str, report_data: ReportData) -> Path:
 
 def _format_metadata(metadata: dict[str, str]) -> str:
     pieces: list[str] = []
-    ordered_keys = ["Duration", "Blur", "Exposure", "Shake", "Silence"]
+    ordered_keys = ["Duration", "SteadyShot", "Blur", "Exposure", "Shake", "Silence"]
     for key in ordered_keys:
         if key in metadata:
             pieces.append(f"{key}: {metadata[key]}")
