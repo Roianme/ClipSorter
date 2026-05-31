@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import sort
 from PIL import Image
 
 
@@ -47,3 +49,32 @@ def test_sort_cli_end_to_end(tmp_path: Path) -> None:
     assert "Files skipped:" in report_text
     assert "DETAIL LOG" in report_text
     assert "[SKIPPED]" in report_text
+
+
+def test_run_qc_check_uses_image_array_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    record = {
+        "converted_path": "dummy.jpg",
+        "detected_type": "photo",
+        "image_array": object(),
+    }
+    config: dict[str, object] = {}
+    called: dict[str, object] = {}
+
+    def fake_analyze_photo(*args: object, **kwargs: object) -> dict[str, object]:
+        called["args"] = args
+        called["kwargs"] = kwargs
+        return {
+            "duration_check": "pass",
+            "blur_check": "pass",
+            "exposure_check": "pass",
+            "shake_check": "pass",
+            "reasons": [],
+        }
+
+    monkeypatch.setattr(sort, "analyze_photo", fake_analyze_photo)
+
+    converted_path, qc_result = sort._run_qc_check(record, config)
+
+    assert converted_path == "dummy.jpg"
+    assert qc_result["duration_check"] == "pass"
+    assert called["kwargs"]["frame"] is record["image_array"]

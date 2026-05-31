@@ -12,11 +12,11 @@ from classifier import Bucket
 logger = logging.getLogger(__name__)
 
 BUCKETS: tuple[Bucket, ...] = ("clean", "review", "rejected", "burst")
-OUTPUT_BUCKETS: tuple[str, ...] = ("usable", "review", "usable/burst", "defects")
+OUTPUT_BUCKETS: tuple[str, ...] = ("usable", "defects")
 BUCKET_TO_OUTPUT: dict[Bucket, str] = {
     "clean": "usable",
-    "review": "review",
-    "burst": "usable/burst",
+    "review": "usable",
+    "burst": "usable",
     "rejected": "defects",
 }
 
@@ -42,9 +42,6 @@ def _type_subfolder(detected_type: str) -> str:
 
 def _create_bucket_tree(output_folder: Path) -> None:
     for bucket in OUTPUT_BUCKETS:
-        if bucket == "usable/burst":
-            (output_folder / bucket).mkdir(parents=True, exist_ok=True)
-            continue
         for subfolder in TYPE_SUBFOLDERS.values():
             (output_folder / bucket / subfolder).mkdir(parents=True, exist_ok=True)
 
@@ -94,7 +91,7 @@ def move_file(
     Move a converted file from temp work dir into bucket/type subfolder.
 
     Video only uses usable/ and defects/ (2 folders).
-    Photo/audio use the full bucket system (usable, review, usable/burst, defects).
+    Photo/audio output also uses only usable/ and defects/ top-level folders.
     Never overwrites an existing file; appends _1, _2, ... on collision.
     Does not modify the original TargetFolder.
     """
@@ -125,9 +122,7 @@ def move_file(
 
     root = Path(output_folder).resolve()
     output_bucket = BUCKET_TO_OUTPUT[bucket]
-    dest_dir = root / output_bucket
-    if output_bucket != "usable/burst":
-        dest_dir = dest_dir / _type_subfolder(detected_type)
+    dest_dir = root / output_bucket / _type_subfolder(detected_type)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     destination = _allocate_destination(dest_dir, source.name)

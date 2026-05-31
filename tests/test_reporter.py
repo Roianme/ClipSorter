@@ -103,3 +103,4 @@ def test_write_report_includes_summary_counts(tmp_path: Path) -> None:
     assert "Converted to mp3:         1" in contents
     assert "Usable:" in contents
     assert "Defects:" in contents
+    assert "Review:" not in contents

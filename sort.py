@@ -142,8 +142,8 @@ def _run_qc_check(record: converter.ConvertedFileRecord, config: dict[str, Any])
     converted_path = record.get("converted_path")
     if not converted_path or record.get("skipped"):
         return converted_path or "", {}
-    
-        image_array = record.get("image_array")
+
+    image_array = record.get("image_array")
 
     try:
         if record["detected_type"] == "video":
@@ -584,10 +584,6 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
             "mp3": sum(1 for r in converted_records if r.get("converted_path") and Path(r["converted_path"]).suffix.lower() == ".mp3"),
         },
         "results": {
-            "clean": sum(1 for bucket in classifications.values() if bucket["bucket"] == "clean"),
-            "review": sum(1 for bucket in classifications.values() if bucket["bucket"] == "review"),
-            "burst": sum(1 for bucket in classifications.values() if bucket["bucket"] == "burst"),
-            "rejected": sum(1 for bucket in classifications.values() if bucket["bucket"] == "rejected"),
             "usable": sum(1 for final_path in moved_paths.values() if final_path.startswith("usable/")),
             "defects": sum(1 for final_path in moved_paths.values() if final_path.startswith("defects/")),
         },
@@ -615,7 +611,6 @@ def _run_pipeline(target_folder: Path, config_path: Path | None, verbose: bool) 
     print("========================================")
     print("DONE")
     print(f"  Usable:    {report_data['results']['usable']} files")
-    print(f"  Review:    {report_data['results']['review']} files")
     print(f"  Defects:   {report_data['results']['defects']} files")
     print(f"Report saved to: {report_path}")
     print("========================================")
