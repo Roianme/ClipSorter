@@ -26,7 +26,7 @@
   "video_output_crf": 18,
   "audio_output_bitrate": "192k",
   "raw_conversion_strategy": "auto",
-  "raw_conversion_timeout_sec": 20,
+  "raw_conversion_timeout_sec": 120,
   "conversion_parallel_workers": 4,
   "conversion_batch_size": 32,
   "qc_parallel_workers": 2

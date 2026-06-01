@@ -1,6 +1,6 @@
 """Video quality checks: find at least 5 consecutive seconds of a steady, not blurry, well-exposed shot.
 
-Only two outcomes for video: "pass" (usable) or "rejected" (defects).
+Only two outcomes for video: "pass" (review) or "rejected" (defects).
 """
 
 from __future__ import annotations

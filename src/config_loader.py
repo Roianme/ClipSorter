@@ -48,7 +48,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "video_output_codec": "libx264",
     "video_output_crf": 18,
     "audio_output_bitrate": "192k",
-    "raw_conversion_timeout_sec": 20,
+    "raw_conversion_timeout_sec": 120,
     "raw_conversion_strategy": "auto",
     "conversion_parallel_workers": 4,
     "conversion_batch_size": 32,

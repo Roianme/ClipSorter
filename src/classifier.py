@@ -1,6 +1,6 @@
 """Combine QC results and duplicate flags into a final bucket.
 
-For video: only two buckets — "clean" (usable) or "rejected" (defects).
+For video: only two buckets — "clean" (review) or "rejected" (defects).
 For photo/audio: clean, review, rejected, burst.
 """
 
@@ -82,7 +82,7 @@ def classify_file(
     """
     Classify one file into clean, review, rejected, or burst.
 
-    For video: only "clean" (usable → usable/videos/) or "rejected" (defects → defects/videos/).
+    For video: only "clean" (review → review/videos/) or "rejected" (defects → defects/videos/).
     For photo/audio: full multi-level with bursts and duplicates.
 
     Duplicate pairs force review unless QC already produced rejected.

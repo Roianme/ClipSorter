@@ -12,17 +12,17 @@ from classifier import Bucket
 logger = logging.getLogger(__name__)
 
 BUCKETS: tuple[Bucket, ...] = ("clean", "review", "rejected", "burst")
-OUTPUT_BUCKETS: tuple[str, ...] = ("usable", "defects")
+OUTPUT_BUCKETS: tuple[str, ...] = ("review", "defects")
 BUCKET_TO_OUTPUT: dict[Bucket, str] = {
-    "clean": "usable",
-    "review": "usable",
-    "burst": "usable",
+    "clean": "review",
+    "review": "review",
+    "burst": "review",
     "rejected": "defects",
 }
 
-# Video only uses usable/ and defects/ (no review, no burst)
+# Video only uses review/ and defects/ (no review bucket-specific folder, no burst)
 VIDEO_BUCKET_TO_OUTPUT: dict[Bucket, str] = {
-    "clean": "usable",
+    "clean": "review",
     "rejected": "defects",
 }
 
@@ -40,13 +40,41 @@ def _type_subfolder(detected_type: str) -> str:
         raise ValueError(f"Unsupported detected_type for move: {detected_type}") from exc
 
 
-def _create_bucket_tree(output_folder: Path) -> None:
+def _create_bucket_tree(output_folder: Path, media_types: list[str] | None = None, include_burst: bool = False) -> None:
+    """Create output folder tree.
+
+    If `media_types` is provided, only create subfolders for those types.
+    If `include_burst` is True and photos are included, create a dedicated
+    `review/burst/<photo_subfolder>` location for burst members.
+    """
+    # If a single media type is requested, create top-level bucket folders
+    # (e.g., review/, defects/) to avoid a redundant per-type subfolder.
+    if media_types is not None and len(media_types) == 1:
+        for bucket in OUTPUT_BUCKETS:
+            (output_folder / bucket).mkdir(parents=True, exist_ok=True)
+
+        # Create burst folder directly under review/ when requested for photos
+        if include_burst and media_types[0] == "photo":
+            (output_folder / "review" / "burst").mkdir(parents=True, exist_ok=True)
+        return
+
+    # Default behaviour: create per-type subfolders under each bucket
+    types = TYPE_SUBFOLDERS.keys() if media_types is None else media_types
     for bucket in OUTPUT_BUCKETS:
-        for subfolder in TYPE_SUBFOLDERS.values():
+        for t in types:
+            subfolder = TYPE_SUBFOLDERS.get(t)
+            if subfolder is None:
+                continue
             (output_folder / bucket / subfolder).mkdir(parents=True, exist_ok=True)
 
+    # Create a dedicated review/burst/<type> location for photos when requested
+    if include_burst and (media_types is None or "photo" in media_types):
+        photo_sub = TYPE_SUBFOLDERS.get("photo")
+        if photo_sub:
+            (output_folder / "review" / "burst" / photo_sub).mkdir(parents=True, exist_ok=True)
 
-def setup_output_folder(target_folder: Path | str) -> Path:
+
+def setup_output_folder(target_folder: Path | str, media_types: list[str] | None = None, include_burst: bool = False) -> Path:
     """
     Create sibling output folder TargetFolder_sorted/ with bucket/type subfolders.
 
@@ -63,7 +91,7 @@ def setup_output_folder(target_folder: Path | str) -> Path:
         logger.warning("Output folder exists; using %s", output_folder)
 
     output_folder.mkdir(parents=True, exist_ok=True)
-    _create_bucket_tree(output_folder)
+    _create_bucket_tree(output_folder, media_types=media_types, include_burst=include_burst)
     return output_folder.resolve()
 
 
@@ -86,26 +114,39 @@ def move_file(
     bucket: Bucket,
     detected_type: str,
     output_folder: Path | str,
+    new_filename: str | None = None,
 ) -> Path:
     """
     Move a converted file from temp work dir into bucket/type subfolder.
 
-    Video only uses usable/ and defects/ (2 folders).
-    Photo/audio output also uses only usable/ and defects/ top-level folders.
+    Video only uses review/ and defects/ (2 folders).
+    Photo/audio output also uses only review/ and defects/ top-level folders.
     Never overwrites an existing file; appends _1, _2, ... on collision.
+    If new_filename is provided, use it for the destination file name.
     Does not modify the original TargetFolder.
     """
+    source = Path(converted_path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Converted file not found: {source}")
+
+    root = Path(output_folder).resolve()
+
+    # Video: only clean/rejected allowed
     if detected_type == "video":
         if bucket not in ("clean", "rejected"):
             raise ValueError(f"Video only supports clean or rejected buckets, got: {bucket}")
-        source = Path(converted_path)
-        if not source.is_file():
-            raise FileNotFoundError(f"Converted file not found: {source}")
-        root = Path(output_folder).resolve()
         output_bucket = VIDEO_BUCKET_TO_OUTPUT[bucket]
-        dest_dir = root / output_bucket / _type_subfolder(detected_type)
+
+        # Prefer per-type folder if it exists, otherwise use bucket root
+        candidate_type_dir = root / output_bucket / _type_subfolder(detected_type)
+        if candidate_type_dir.exists():
+            dest_dir = candidate_type_dir
+        else:
+            dest_dir = root / output_bucket
+
         dest_dir.mkdir(parents=True, exist_ok=True)
-        destination = _allocate_destination(dest_dir, source.name)
+        filename = new_filename if new_filename is not None else source.name
+        destination = _allocate_destination(dest_dir, filename)
         shutil.move(str(source), str(destination))
         logger.info("Moved %s -> %s", source, destination)
         return destination.resolve()
@@ -122,10 +163,31 @@ def move_file(
 
     root = Path(output_folder).resolve()
     output_bucket = BUCKET_TO_OUTPUT[bucket]
-    dest_dir = root / output_bucket / _type_subfolder(detected_type)
-    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    destination = _allocate_destination(dest_dir, source.name)
+    # Prefer per-type folder if present
+    candidate_type_dir = root / output_bucket / _type_subfolder(detected_type)
+    if candidate_type_dir.exists():
+        dest_dir = candidate_type_dir
+    else:
+        # Special-case burst: prefer review/burst[/<type>] if present
+        if bucket == "burst":
+            candidate_burst_type_dir = root / "review" / "burst" / _type_subfolder(detected_type)
+            if candidate_burst_type_dir.exists():
+                dest_dir = candidate_burst_type_dir
+            elif (root / "review" / "burst").exists():
+                dest_dir = root / "review" / "burst"
+            else:
+                dest_dir = root / output_bucket
+        else:
+            # Fallback to bucket root (created for single-type runs) or create per-type
+            if (root / output_bucket).exists():
+                dest_dir = root / output_bucket
+            else:
+                dest_dir = root / output_bucket / _type_subfolder(detected_type)
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    filename = new_filename if new_filename is not None else source.name
+    destination = _allocate_destination(dest_dir, filename)
     shutil.move(str(source), str(destination))
     logger.info("Moved %s -> %s", source, destination)
     return destination.resolve()

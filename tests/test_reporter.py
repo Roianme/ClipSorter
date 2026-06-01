@@ -20,7 +20,7 @@ def test_write_report_creates_report_file(tmp_path: Path) -> None:
         "files_skipped": 1,
         "skipped_note": "unsupported type",
         "converted_counts": {"mp4": 1, "jpg": 1, "mp3": 0},
-        "results": {"usable": 2, "defects": 0},
+        "results": {"review": 2, "defects": 0},
         "entries": [
             {
                 "bucket": "clean",
@@ -88,7 +88,7 @@ def test_write_report_includes_summary_counts(tmp_path: Path) -> None:
         "files_skipped": 1,
         "skipped_note": "unsupported type",
         "converted_counts": {"mp4": 2, "jpg": 1, "mp3": 1},
-        "results": {"usable": 3, "defects": 1},
+        "results": {"review": 3, "defects": 1},
         "entries": [],
     }
 
@@ -101,6 +101,6 @@ def test_write_report_includes_summary_counts(tmp_path: Path) -> None:
     assert "Converted to mp4:         2" in contents
     assert "Converted to jpg:         1" in contents
     assert "Converted to mp3:         1" in contents
-    assert "Usable:" in contents
+    assert "Review:" in contents
     assert "Defects:" in contents
-    assert "Review:" not in contents
+    assert "Usable:" not in contents
