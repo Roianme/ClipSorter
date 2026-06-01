@@ -12,6 +12,12 @@ ClipSorter supports separate sorting of **photos**, **videos**, and **audio** fi
 pip install -r requirements.txt
 ```
 
+## Desktop GUI
+
+```bash
+python app.py
+```
+
 ## Basic Usage
 
 ### Sort Photos Only
