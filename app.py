@@ -177,16 +177,16 @@ class ClipSorterApp:
 
     def _run_sort(self) -> None:
         assert self.folder_path is not None
+        assert self.log_queue is not None
         previous_stdout = sys.stdout
         previous_stderr = sys.stderr
-        writer = QueueWriter(self.log_queue) if self.log_queue else None
-        if writer is not None:
-            sys.stdout = writer
-            sys.stderr = writer
+        writer = QueueWriter(self.log_queue)
+        sys.stdout = writer
+        sys.stderr = writer
 
         try:
-            results = []
-            progress_callback = self.log_queue.put if self.log_queue is not None else None
+            results: list[int] = []
+            progress_callback: Callable[[str], None] | None = self.log_queue.put
             if self.mode_var.get() == "all":
                 for mode in ("photo", "video", "audio"):
                     self.log_queue.put(f"Running {mode} sorting...")
@@ -197,21 +197,19 @@ class ClipSorterApp:
 
             self.output_path = self._discover_latest_output()
             self.report_path = self._discover_latest_report()
+            self.log_queue.put("__DONE__")
             self._show_results(results)
         except Exception as exc:  # pragma: no cover
-            if self.log_queue is not None:
-                self.log_queue.put(f"ERROR: {exc}")
+            writer.flush()
+            error_msg = f"ERROR: {exc}"
+            self.log_queue.put(error_msg)
+            self.log_queue.put("__DONE__")
             self.summary_var.set(f"Sorting failed: {exc}")
             self.output_path = None
             self.report_path = None
-            self._show_frame(self.result_frame)
         finally:
-            if writer is not None:
-                writer.flush()
             sys.stdout = previous_stdout
             sys.stderr = previous_stderr
-            if self.log_queue is not None:
-                self.log_queue.put("__DONE__")
 
     def _run_mode(self, mode: str, progress_callback: Callable[[str], None] | None = None) -> int:
         if mode == "photo":
@@ -282,6 +280,8 @@ class ClipSorterApp:
             while True:
                 line = self.log_queue.get_nowait()
                 if line == "__DONE__":
+                    self.progress_bar.stop()
+                    self._show_frame(self.result_frame)
                     return
                 self._append_log(line)
         except queue.Empty:
@@ -289,7 +289,6 @@ class ClipSorterApp:
         self.root.after(100, self._poll_log_queue)
 
     def _append_log(self, line: str) -> None:
-        stage_text = None
         if line.startswith("__STAGE__:"):
             stage_text = line.split(":", 1)[1]
             self.current_stage_name = stage_text
@@ -314,10 +313,19 @@ class ClipSorterApp:
                 self.status_var.set(f"{current}/{total}")
             return
 
+        is_error = line.startswith("ERROR:")
         self.log_text.config(state="normal")
-        self.log_text.insert(tk.END, f"{line}\n")
+        if is_error:
+            self.log_text.insert(tk.END, f"{line}\n", "error")
+            self.log_text.tag_config("error", foreground="red")
+        else:
+            self.log_text.insert(tk.END, f"{line}\n")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
+
+        if is_error:
+            self.progress_bar.stop()
+            self.status_var.set("Sorting failed — see errors above.")
 
     def _open_output_folder(self) -> None:
         if self.output_path is None or not self.output_path.exists():
