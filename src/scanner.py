@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Callable, Literal, TypedDict
 
 import magic
 
@@ -190,7 +190,10 @@ def _build_record(path: Path, detected_type: Literal["video", "photo", "audio"])
     )
 
 
-def scan_folder(target_folder: Path | str) -> list[FileRecord]:
+def scan_folder(
+    target_folder: Path | str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> list[FileRecord]:
     """
     Recursively scan target_folder and return supported media FileRecords.
 
@@ -201,10 +204,16 @@ def scan_folder(target_folder: Path | str) -> list[FileRecord]:
         raise NotADirectoryError(f"Target folder does not exist or is not a directory: {root}")
 
     records: list[FileRecord] = []
+    total_files = sum(len(filenames) for _, _, filenames in os.walk(root))
+    processed_files = 0
 
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
             path = Path(dirpath) / name
+            processed_files += 1
+            if progress_callback is not None:
+                progress_callback(f"__PROGRESS__:{processed_files}/{total_files}")
+
             if not path.is_file():
                 continue
 

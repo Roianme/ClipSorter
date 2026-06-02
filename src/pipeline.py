@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from pipeline_shared import PipelineProgressCallback
+
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
@@ -63,6 +65,7 @@ def run_media_pipeline(
     config_path: Path | None,
     verbose: bool,
     pipeline_config: PipelineConfig,
+    progress_callback: PipelineProgressCallback | None = None,
 ) -> int:
     """Run media sorting pipeline for a specific media type."""
     ps.configure_logging(verbose)
@@ -76,8 +79,11 @@ def run_media_pipeline(
     print(f"Source: {source_folder}")
 
     # Scan for media type
+    ps.emit_progress_stage(progress_callback, "Scanning files...")
     supported_records, unsupported_entries = ps.scan_source_folder(
-        source_folder, media_types=[media_type]
+        source_folder,
+        media_types=[media_type],
+        progress_callback=progress_callback,
     )
     total_files_found = sum(1 for path in source_folder.rglob("*") if path.is_file())
     files_processed = len(supported_records)
@@ -95,6 +101,7 @@ def run_media_pipeline(
             pass
 
     # Convert files
+    ps.emit_progress_stage(progress_callback, "Converting formats...")
     converted_records: list[converter.ConvertedFileRecord] = []
     print("Converting formats...", end=" ", flush=True)
 
@@ -102,6 +109,7 @@ def run_media_pipeline(
     if max_workers < 1:
         max_workers = 1
 
+    total_conversions = len(supported_records)
     if tqdm is not None:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
@@ -111,8 +119,9 @@ def run_media_pipeline(
                 )
                 futures[future] = record
 
+            completed = 0
             with ps.progress(
-                total=len(supported_records),
+                total=total_conversions,
                 desc="Converting formats",
                 unit="file",
                 dynamic_ncols=True,
@@ -123,7 +132,6 @@ def run_media_pipeline(
                     record = futures[future]
                     try:
                         converted_records.append(future.result())
-                        pbar.update(1)
                     except Exception as exc:
                         logger.exception("Conversion failed for %s", record["original_path"])
                         unsupported_entries.append(
@@ -138,7 +146,9 @@ def run_media_pipeline(
                                 "reason": str(exc),
                             }
                         )
-                        pbar.update(1)
+                    completed += 1
+                    pbar.update(1)
+                    ps.emit_progress_value(progress_callback, completed, total_conversions)
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
@@ -148,6 +158,7 @@ def run_media_pipeline(
                 )
                 futures[future] = record
 
+            completed = 0
             for future in as_completed(futures):
                 record = futures[future]
                 try:
@@ -166,9 +177,12 @@ def run_media_pipeline(
                             "reason": str(exc),
                         }
                     )
+                completed += 1
+                ps.emit_progress_value(progress_callback, completed, total_conversions)
     print("Done")
 
     # Run QC checks
+    ps.emit_progress_stage(progress_callback, "Running QC checks...")
     qc_results: dict[str, dict[str, Any]] = {}
     print("Running QC checks...", end=" ", flush=True)
 
@@ -178,14 +192,16 @@ def run_media_pipeline(
 
     qc_functions = {media_type: pipeline_config.qc_function}
 
+    total_qc = len(converted_records)
     if tqdm is not None:
         with ThreadPoolExecutor(max_workers=qc_workers) as executor:
             futures = {
                 executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions): record
                 for record in converted_records
             }
+            completed = 0
             with ps.progress(
-                total=len(converted_records),
+                total=total_qc,
                 desc="Running QC checks",
                 unit="file",
                 dynamic_ncols=True,
@@ -196,17 +212,22 @@ def run_media_pipeline(
                     path, result = future.result()
                     if path:
                         qc_results[path] = result
+                    completed += 1
                     pbar.update(1)
+                    ps.emit_progress_value(progress_callback, completed, total_qc)
     else:
         with ThreadPoolExecutor(max_workers=qc_workers) as executor:
             futures = {
                 executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions): record
                 for record in converted_records
             }
+            completed = 0
             for future in as_completed(futures):
                 path, result = future.result()
                 if path:
                     qc_results[path] = result
+                completed += 1
+                ps.emit_progress_value(progress_callback, completed, total_qc)
     print("Done")
 
     # Get media paths
@@ -235,6 +256,7 @@ def run_media_pipeline(
     selected_burst_representatives = ps.choose_best_burst_representatives(burst_groups, qc_results)
 
     # Detect duplicates
+    ps.emit_progress_stage(progress_callback, "Detecting duplicates...")
     duplicate_pairs = []
     print("Detecting duplicates...", end=" ")
     photo_paths = media_paths if media_type == "photo" else []
@@ -265,12 +287,15 @@ def run_media_pipeline(
             )
         except Exception:
             logger.exception("Duplicate detection failed")
+    ps.emit_progress_value(progress_callback, 1, 1)
     print(f"Done — {len(duplicate_pairs)} duplicate pairs found")
 
     # Classify files
+    ps.emit_progress_stage(progress_callback, "Classifying files...")
     classifications: dict[str, classifier.ClassifierResult] = {}
     print("Classifying files...", end=" ", flush=True)
 
+    total_classifications = len(converted_records)
     if tqdm is not None:
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
@@ -279,8 +304,9 @@ def run_media_pipeline(
                 ): record
                 for record in converted_records
             }
+            completed = 0
             with ps.progress(
-                total=len(converted_records),
+                total=total_classifications,
                 desc="Classifying files",
                 unit="file",
                 dynamic_ncols=True,
@@ -291,7 +317,9 @@ def run_media_pipeline(
                     path, result = future.result()
                     if path:
                         classifications[path] = result
+                    completed += 1
                     pbar.update(1)
+                    ps.emit_progress_value(progress_callback, completed, total_classifications)
     else:
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
@@ -300,16 +328,23 @@ def run_media_pipeline(
                 ): record
                 for record in converted_records
             }
+            completed = 0
             for future in as_completed(futures):
                 path, result = future.result()
                 if path:
                     classifications[path] = result
+                completed += 1
+                ps.emit_progress_value(progress_callback, completed, total_classifications)
     print("Done")
 
     # Move files
+    ps.emit_progress_stage(progress_callback, "Moving files...")
     print("Moving files...", end=" ")
     moved_paths: dict[str, str] = {}
     file_sequence_number = 0
+    move_records = [r for r in converted_records if r.get("converted_path") and not r.get("skipped")]
+    total_moves = len(move_records)
+    move_completed = 0
     if tqdm is not None:
         mv_iter = ps.progress(
             converted_records, desc="Moving files", unit="file", dynamic_ncols=True, ncols=80, ascii=True
@@ -318,9 +353,13 @@ def run_media_pipeline(
             converted_path = record.get("converted_path")
             if not converted_path or record.get("skipped"):
                 mv_iter.set_description("Moving skipped")
+                move_completed += 1
+                ps.emit_progress_value(progress_callback, move_completed, total_moves)
                 continue
             classification = classifications.get(converted_path)
             if classification is None:
+                move_completed += 1
+                ps.emit_progress_value(progress_callback, move_completed, total_moves)
                 continue
             try:
                 if classification["bucket"] == "burst" and pipeline_config.enable_burst:
@@ -361,13 +400,20 @@ def run_media_pipeline(
                 moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
             except Exception:
                 logger.exception("Moving failed for %s", converted_path)
+            finally:
+                move_completed += 1
+                ps.emit_progress_value(progress_callback, move_completed, total_moves)
     else:
         for record in converted_records:
             converted_path = record.get("converted_path")
             if not converted_path or record.get("skipped"):
+                move_completed += 1
+                ps.emit_progress_value(progress_callback, move_completed, total_moves)
                 continue
             classification = classifications.get(converted_path)
             if classification is None:
+                move_completed += 1
+                ps.emit_progress_value(progress_callback, move_completed, total_moves)
                 continue
             try:
                 if classification["bucket"] == "burst" and pipeline_config.enable_burst:
@@ -438,6 +484,8 @@ def run_media_pipeline(
         ),
     }
 
+    ps.emit_progress_stage(progress_callback, "Writing report...")
+    ps.emit_progress_value(progress_callback, 0, 1)
     print("Writing report...", end=" ")
     if tqdm is not None:
         with ps.progress(

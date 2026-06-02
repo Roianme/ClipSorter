@@ -9,6 +9,8 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Literal
 
+PipelineProgressCallback = Callable[[str], None]
+
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
@@ -48,6 +50,27 @@ def progress(iterable, **kwargs):
     return tqdm(iterable, **kwargs)
 
 
+def emit_progress_stage(
+    progress_callback: PipelineProgressCallback | None,
+    stage: str,
+) -> None:
+    """Emit a stage update for GUI consumers."""
+    if progress_callback is None:
+        return
+    progress_callback(f"__STAGE__:{stage}")
+
+
+def emit_progress_value(
+    progress_callback: PipelineProgressCallback | None,
+    current: int,
+    total: int,
+) -> None:
+    """Emit a numeric progress update for GUI consumers."""
+    if progress_callback is None:
+        return
+    progress_callback(f"__PROGRESS__:{current}/{total}")
+
+
 def relative_path(root: Path, path: Path) -> str:
     """Get relative path as string."""
     try:
@@ -58,10 +81,12 @@ def relative_path(root: Path, path: Path) -> str:
 
 
 def scan_source_folder(
-    source_folder: Path, media_types: list[str] | None = None
+    source_folder: Path,
+    media_types: list[str] | None = None,
+    progress_callback: PipelineProgressCallback | None = None,
 ) -> tuple[list[scanner.FileRecord], list[dict[str, Any]]]:
     """Scan source folder and filter by media types."""
-    all_records = scanner.scan_folder(source_folder)
+    all_records = scanner.scan_folder(source_folder, progress_callback=progress_callback)
     
     # Filter by media types if specified
     if media_types is not None:

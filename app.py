@@ -5,6 +5,7 @@ import queue
 import sys
 import threading
 from pathlib import Path
+from typing import Callable
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import ttk
@@ -58,6 +59,7 @@ class ClipSorterApp:
         self.report_path: Path | None = None
         self.log_queue: queue.Queue[str] | None = None
         self.worker_thread: threading.Thread | None = None
+        self.current_stage_name: str | None = None
 
         self._create_frames()
         self._show_frame(self.select_frame)
@@ -113,7 +115,7 @@ class ClipSorterApp:
         self.progress_label = ttk.Label(self.progress_frame, textvariable=self.status_var, wraplength=560)
         self.progress_label.pack(pady=(0, 16), anchor="w")
 
-        self.progress_bar = ttk.Progressbar(self.progress_frame, mode="indeterminate", length=520)
+        self.progress_bar = ttk.Progressbar(self.progress_frame, mode="determinate", length=520)
         self.progress_bar.pack(pady=(0, 20))
 
         self.log_text = tk.Text(self.progress_frame, width=70, height=10, state="disabled", wrap="word")
@@ -161,8 +163,9 @@ class ClipSorterApp:
             return
 
         self.status_var.set("Starting pipeline...")
+        self.current_stage_name = None
         self._show_frame(self.progress_frame)
-        self.progress_bar.start(10)
+        self.progress_bar.config(mode="determinate", value=0, maximum=1)
         self.log_text.config(state="normal")
         self.log_text.delete("1.0", tk.END)
         self.log_text.config(state="disabled")
@@ -183,13 +186,14 @@ class ClipSorterApp:
 
         try:
             results = []
+            progress_callback = self.log_queue.put if self.log_queue is not None else None
             if self.mode_var.get() == "all":
                 for mode in ("photo", "video", "audio"):
                     self.log_queue.put(f"Running {mode} sorting...")
-                    code = self._run_mode(mode)
+                    code = self._run_mode(mode, progress_callback=progress_callback)
                     results.append(code)
             else:
-                results.append(self._run_mode(self.mode_var.get()))
+                results.append(self._run_mode(self.mode_var.get(), progress_callback=progress_callback))
 
             self.output_path = self._discover_latest_output()
             self.report_path = self._discover_latest_report()
@@ -209,13 +213,13 @@ class ClipSorterApp:
             if self.log_queue is not None:
                 self.log_queue.put("__DONE__")
 
-    def _run_mode(self, mode: str) -> int:
+    def _run_mode(self, mode: str, progress_callback: Callable[[str], None] | None = None) -> int:
         if mode == "photo":
-            return sort_photo(self.folder_path, None, False)
+            return sort_photo(self.folder_path, None, False, progress_callback=progress_callback)
         if mode == "video":
-            return sort_video(self.folder_path, None, False)
+            return sort_video(self.folder_path, None, False, progress_callback=progress_callback)
         if mode == "audio":
-            return sort_audio(self.folder_path, None, False)
+            return sort_audio(self.folder_path, None, False, progress_callback=progress_callback)
         raise ValueError(f"Unsupported mode: {mode}")
 
     def _discover_latest_output(self) -> Path | None:
@@ -285,11 +289,35 @@ class ClipSorterApp:
         self.root.after(100, self._poll_log_queue)
 
     def _append_log(self, line: str) -> None:
+        stage_text = None
+        if line.startswith("__STAGE__:"):
+            stage_text = line.split(":", 1)[1]
+            self.current_stage_name = stage_text
+            self.progress_bar.config(value=0, maximum=1)
+            self.status_var.set(stage_text)
+            self.log_text.config(state="normal")
+            self.log_text.insert(tk.END, f"{stage_text}\n")
+            self.log_text.see(tk.END)
+            self.log_text.config(state="disabled")
+            return
+
+        if line.startswith("__PROGRESS__:"):
+            progress_text = line.split(":", 1)[1]
+            try:
+                current, total = [int(value) for value in progress_text.split("/")]
+            except ValueError:
+                return
+            self.progress_bar.config(maximum=total, value=current)
+            if self.current_stage_name:
+                self.status_var.set(f"{self.current_stage_name} ({current}/{total})")
+            else:
+                self.status_var.set(f"{current}/{total}")
+            return
+
         self.log_text.config(state="normal")
         self.log_text.insert(tk.END, f"{line}\n")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
-        self.status_var.set(line)
 
     def _open_output_folder(self) -> None:
         if self.output_path is None or not self.output_path.exists():
