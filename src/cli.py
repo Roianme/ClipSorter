@@ -8,10 +8,8 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from pipeline_shared import JsonEmitter, CancellationToken
-from sort_photo import sort_photo
-from sort_video import sort_video
-from sort_audio import sort_audio
+from pipeline_shared import JsonEmitter
+from service import MediaPipelineService
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -53,160 +51,90 @@ def _build_base_parser() -> argparse.ArgumentParser:
     photo_parser = subparsers.add_parser("photo", help="Sort photos only")
     photo_parser.add_argument("target_folder", help="Path to the source media folder")
     _add_common_args(photo_parser)
-    photo_parser.set_defaults(func=_run_photo)
+    photo_parser.set_defaults(mode="photo")
     
     # Video command
     video_parser = subparsers.add_parser("video", help="Sort videos only")
     video_parser.add_argument("target_folder", help="Path to the source media folder")
     _add_common_args(video_parser)
-    video_parser.set_defaults(func=_run_video)
+    video_parser.set_defaults(mode="video")
     
     # Audio command
     audio_parser = subparsers.add_parser("audio", help="Sort audio files only")
     audio_parser.add_argument("target_folder", help="Path to the source media folder")
     _add_common_args(audio_parser)
-    audio_parser.set_defaults(func=_run_audio)
+    audio_parser.set_defaults(mode="audio")
     
     # All command
     all_parser = subparsers.add_parser("all", help="Sort all media types (photo, video, audio)")
     all_parser.add_argument("target_folder", help="Path to the source media folder")
     _add_common_args(all_parser)
-    all_parser.set_defaults(func=_run_all)
+    all_parser.set_defaults(mode="all")
     
     return parser
 
 
-def _validate_folder(args: Any) -> Path | None:
-    """Validate target folder exists and is a directory. Returns Path or prints error."""
-    target_folder = Path(args.target_folder)
-    if not target_folder.exists() or not target_folder.is_dir():
-        if getattr(args, "json", False):
-            emitter = JsonEmitter()
-            emitter.emit_error(
-                "INVALID_FOLDER",
-                f"Target folder does not exist or is not a directory: {target_folder}",
-            )
-            emitter.close()
-        else:
-            print(f"Error: Target folder does not exist or is not a directory: {target_folder}")
-        return None
-    return target_folder
-
-
-def _make_emitter(args: Any) -> JsonEmitter | None:
-    """Create a JsonEmitter if --json was passed, otherwise return None."""
-    if getattr(args, "json", False):
-        return JsonEmitter(sys.stdout)
-    return None
-
-
-def _run_photo(args, cancel_token: CancellationToken) -> int:
-    """Run photo sorting."""
-    target_folder = _validate_folder(args)
-    if target_folder is None:
-        return 1
+def _run_pipeline(args: Any) -> int:
+    """Run pipeline via MediaPipelineService."""
+    target_folder = args.target_folder
     
-    config_path = Path(args.config_path) if args.config_path else None
-    json_emitter = _make_emitter(args)
-    return sort_photo(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
-    )
+    if args.json:
+        emitter = JsonEmitter(sys.stdout)
+        
+        def callback(event: dict[str, Any]) -> None:
+            # Simple adaptation for JsonEmitter
+            if event["event"] == "stage":
+                emitter.emit_stage(event["name"])
+            elif event["event"] == "progress":
+                emitter.emit_progress(event["current"], event["total"], event.get("stage"))
+            elif event["event"] == "file_done":
+                emitter.emit_file_done(event["file"], event["result"])
+            elif event["event"] == "error":
+                emitter.emit_error(event["code"], event["message"], event.get("file"))
+            elif event["event"] == "summary":
+                emitter.emit_summary(event["report"])
+            elif event["event"] == "cancelled":
+                emitter.emit_error("CANCELLED", "Operation cancelled by user")
+                emitter._write({"event": "cancelled"})
 
+    else:
+        def callback(event: dict[str, Any]) -> None:
+            # Simplified human-readable print
+            if event["event"] == "stage":
+                print(f"\n--- {event['name']} ---")
+            elif event["event"] == "progress":
+                # Print progress to stdout (tqdm would normally handle this)
+                pass
+            elif event["event"] == "error":
+                print(f"Error [{event['code']}]: {event['message']}")
 
-def _run_video(args, cancel_token: CancellationToken) -> int:
-    """Run video sorting."""
-    target_folder = _validate_folder(args)
-    if target_folder is None:
-        return 1
+    modes = ["photo", "video", "audio"] if args.mode == "all" else [args.mode]
+    results = []
     
-    config_path = Path(args.config_path) if args.config_path else None
-    json_emitter = _make_emitter(args)
-    return sort_video(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
-    )
-
-
-def _run_audio(args, cancel_token: CancellationToken) -> int:
-    """Run audio sorting."""
-    target_folder = _validate_folder(args)
-    if target_folder is None:
-        return 1
-    
-    config_path = Path(args.config_path) if args.config_path else None
-    json_emitter = _make_emitter(args)
-    return sort_audio(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
-    )
-
-
-def _run_all(args, cancel_token: CancellationToken) -> int:
-    """Run all media type sorting."""
-    target_folder = _validate_folder(args)
-    if target_folder is None:
-        return 1
-    
-    config_path = Path(args.config_path) if args.config_path else None
-    json_emitter = _make_emitter(args)
-    
-    if json_emitter is None:
-        print("=" * 60)
-        if args.dry_run:
-            print("DRY RUN: Running PHOTO sorting...")
-        else:
-            print("Running PHOTO sorting...")
-        print("=" * 60)
-    
-    result_photo = sort_photo(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
+    # Create service
+    service = MediaPipelineService(
+        mode=modes[0], # Handling all modes iteratively
+        target_folder=target_folder,
+        config_path=args.config_path,
+        progress_callback=callback,
     )
     
-    if json_emitter is None:
-        print("\n" + "=" * 60)
-        if args.dry_run:
-            print("DRY RUN: Running VIDEO sorting...")
-        else:
-            print("Running VIDEO sorting...")
-        print("=" * 60)
+    # Setup signal handler
+    signal.signal(signal.SIGINT, lambda s, f: service.cancel())
     
-    result_video = sort_video(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
-    )
+    service.set_dry_run(args.dry_run)
     
-    if json_emitter is None:
-        print("\n" + "=" * 60)
-        if args.dry_run:
-            print("DRY RUN: Running AUDIO sorting...")
-        else:
-            print("Running AUDIO sorting...")
-        print("=" * 60)
-    
-    result_audio = sort_audio(
-        target_folder, config_path, args.verbose,
-        json_emitter=json_emitter,
-        dry_run=args.dry_run,
-        cancel_token=cancel_token,
-    )
-    
-    if json_emitter:
-        json_emitter.close()
-    
-    # Return 0 only if all succeeded
-    return 0 if all([result_photo == 0, result_video == 0, result_audio == 0]) else 1
+    # This loop needs to be adapted for "all" mode
+    # For now, simplistic approach
+    for mode in modes:
+        service.mode = mode
+        result = service.run()
+        results.append(result.get("status") == "success")
+
+    if args.json:
+        emitter.close()
+
+    return 0 if all(results) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -214,14 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_base_parser()
     args = parser.parse_args(argv)
     
-    if not hasattr(args, "func"):
+    if not hasattr(args, "mode"):
         parser.print_help()
         return 0
     
-    token = CancellationToken()
-    signal.signal(signal.SIGINT, lambda s, f: token.cancel())
-    
-    return args.func(args, token)
+    return _run_pipeline(args)
 
 
 if __name__ == "__main__":

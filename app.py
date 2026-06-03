@@ -27,6 +27,15 @@ MODE_OPTIONS = [
 ]
 
 
+# Future integration:
+# service = MediaPipelineService(
+#     mode=self.mode_var.get(),
+#     target_folder=str(self.folder_path),
+#     progress_callback=self.on_pipeline_event
+# )
+# service.set_dry_run(False) # or self.preview_mode.get()
+# service.run()  # in a background thread
+
 class QueueWriter:
     def __init__(self, queue_: "queue.Queue[str]"):
         self._queue = queue_
