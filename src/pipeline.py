@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from pipeline_shared import PipelineProgressCallback
+from pipeline_shared import JsonEmitter, PipelineProgressCallback
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -66,6 +66,7 @@ def run_media_pipeline(
     verbose: bool,
     pipeline_config: PipelineConfig,
     progress_callback: PipelineProgressCallback | None = None,
+    json_emitter: JsonEmitter | None = None,
 ) -> int:
     """Run media sorting pipeline for a specific media type."""
     ps.configure_logging(verbose)
@@ -75,8 +76,17 @@ def run_media_pipeline(
     work_dir = converter.get_work_dir()
     media_type = pipeline_config.media_type
 
-    print(f"ClipSorter v1.0 - {media_type.upper()}")
-    print(f"Source: {source_folder}")
+    def _j(emitter_method: str, *args: Any, **kwargs: Any) -> None:
+        """Helper: call emitter method if emitter is active."""
+        if json_emitter is not None:
+            getattr(json_emitter, emitter_method)(*args, **kwargs)
+
+    if json_emitter is None:
+        print(f"ClipSorter v1.0 - {media_type.upper()}")
+        print(f"Source: {source_folder}")
+    else:
+        json_emitter.emit_stage(f"ClipSorter v1.0 - {media_type.upper()}")
+        json_emitter.emit_file_done(str(source_folder), "source_folder")
 
     # Scan for media type
     ps.emit_progress_stage(progress_callback, "Scanning files...")
@@ -92,18 +102,21 @@ def run_media_pipeline(
     output_root = mover.setup_output_folder(
         source_folder, media_types=[media_type], include_burst=pipeline_config.enable_burst
     )
-    print(f"Output: {output_root}")
-
-    print(ps.summary_text(total_files_found, files_processed, files_skipped))
-
-    if tqdm is not None:
-        for _ in ps.progress([None], desc="Scanning files", total=1, unit="stage"):
-            pass
+    if json_emitter is None:
+        print(f"Output: {output_root}")
+        print(ps.summary_text(total_files_found, files_processed, files_skipped))
+        if tqdm is not None:
+            for _ in ps.progress([None], desc="Scanning files", total=1, unit="stage"):
+                pass
+    else:
+        json_emitter.emit_file_done(str(output_root), "output_folder")
 
     # Convert files
     ps.emit_progress_stage(progress_callback, "Converting formats...")
+    _j("emit_stage", "Converting formats")
     converted_records: list[converter.ConvertedFileRecord] = []
-    print("Converting formats...", end=" ", flush=True)
+    if json_emitter is None:
+        print("Converting formats...", end=" ", flush=True)
 
     max_workers = config.get("conversion_parallel_workers", 4)
     if max_workers < 1:
@@ -149,6 +162,7 @@ def run_media_pipeline(
                     completed += 1
                     pbar.update(1)
                     ps.emit_progress_value(progress_callback, completed, total_conversions)
+                    _j("emit_progress", completed, total_conversions, "Converting formats")
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
@@ -179,12 +193,16 @@ def run_media_pipeline(
                     )
                 completed += 1
                 ps.emit_progress_value(progress_callback, completed, total_conversions)
-    print("Done")
+                _j("emit_progress", completed, total_conversions, "Converting formats")
+    if json_emitter is None:
+        print("Done")
 
     # Run QC checks
     ps.emit_progress_stage(progress_callback, "Running QC checks...")
+    _j("emit_stage", "Running QC checks")
     qc_results: dict[str, dict[str, Any]] = {}
-    print("Running QC checks...", end=" ", flush=True)
+    if json_emitter is None:
+        print("Running QC checks...", end=" ", flush=True)
 
     qc_workers = config.get("qc_parallel_workers", 2)
     if qc_workers < 1:
@@ -215,6 +233,7 @@ def run_media_pipeline(
                     completed += 1
                     pbar.update(1)
                     ps.emit_progress_value(progress_callback, completed, total_qc)
+                    _j("emit_progress", completed, total_qc, "Running QC checks")
     else:
         with ThreadPoolExecutor(max_workers=qc_workers) as executor:
             futures = {
@@ -228,7 +247,9 @@ def run_media_pipeline(
                     qc_results[path] = result
                 completed += 1
                 ps.emit_progress_value(progress_callback, completed, total_qc)
-    print("Done")
+                _j("emit_progress", completed, total_qc, "Running QC checks")
+    if json_emitter is None:
+        print("Done")
 
     # Get media paths
     media_paths = [r["converted_path"] for r in converted_records if r.get("converted_path")]
@@ -236,7 +257,9 @@ def run_media_pipeline(
     # Detect burst groups (photo-only)
     burst_groups: list[dict[str, Any]] = []
     if pipeline_config.enable_burst:
-        print("Detecting burst groups...", end=" ")
+        _j("emit_stage", "Detecting burst groups")
+        if json_emitter is None:
+            print("Detecting burst groups...", end=" ")
         if tqdm is not None:
             with ps.progress(
                 total=1, desc="Detecting burst groups", dynamic_ncols=True, ncols=80, ascii=True
@@ -251,14 +274,21 @@ def run_media_pipeline(
                 burst_groups = duplicate.find_burst_groups(media_paths, config)
             except Exception:
                 logger.exception("Burst detection failed")
-        print(f"Done — {len(burst_groups)} burst groups found")
+        if json_emitter is None:
+            print(f"Done — {len(burst_groups)} burst groups found")
+        else:
+            for bg in burst_groups:
+                for f in bg.get("files", []):
+                    _j("emit_file_done", f, "burst_group")
 
     selected_burst_representatives = ps.choose_best_burst_representatives(burst_groups, qc_results)
 
-    # Detect duplicates
+        # Detect duplicates
     ps.emit_progress_stage(progress_callback, "Detecting duplicates...")
+    _j("emit_stage", "Detecting duplicates")
     duplicate_pairs = []
-    print("Detecting duplicates...", end=" ")
+    if json_emitter is None:
+        print("Detecting duplicates...", end=" ")
     photo_paths = media_paths if media_type == "photo" else []
     video_paths = media_paths if media_type == "video" else []
     audio_paths = media_paths if media_type == "audio" else []
@@ -288,12 +318,15 @@ def run_media_pipeline(
         except Exception:
             logger.exception("Duplicate detection failed")
     ps.emit_progress_value(progress_callback, 1, 1)
-    print(f"Done — {len(duplicate_pairs)} duplicate pairs found")
+    if json_emitter is None:
+        print(f"Done — {len(duplicate_pairs)} duplicate pairs found")
 
-    # Classify files
+        # Classify files
     ps.emit_progress_stage(progress_callback, "Classifying files...")
+    _j("emit_stage", "Classifying files")
     classifications: dict[str, classifier.ClassifierResult] = {}
-    print("Classifying files...", end=" ", flush=True)
+    if json_emitter is None:
+        print("Classifying files...", end=" ", flush=True)
 
     total_classifications = len(converted_records)
     if tqdm is not None:
@@ -320,6 +353,7 @@ def run_media_pipeline(
                     completed += 1
                     pbar.update(1)
                     ps.emit_progress_value(progress_callback, completed, total_classifications)
+                    _j("emit_progress", completed, total_classifications, "Classifying files")
     else:
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
@@ -335,11 +369,15 @@ def run_media_pipeline(
                     classifications[path] = result
                 completed += 1
                 ps.emit_progress_value(progress_callback, completed, total_classifications)
-    print("Done")
+                _j("emit_progress", completed, total_classifications, "Classifying files")
+    if json_emitter is None:
+        print("Done")
 
     # Move files
     ps.emit_progress_stage(progress_callback, "Moving files...")
-    print("Moving files...", end=" ")
+    _j("emit_stage", "Moving files")
+    if json_emitter is None:
+        print("Moving files...", end=" ")
     moved_paths: dict[str, str] = {}
     file_sequence_number = 0
     move_records = [r for r in converted_records if r.get("converted_path") and not r.get("skipped")]
@@ -403,6 +441,7 @@ def run_media_pipeline(
             finally:
                 move_completed += 1
                 ps.emit_progress_value(progress_callback, move_completed, total_moves)
+                _j("emit_progress", move_completed, total_moves, "Moving files")
     else:
         for record in converted_records:
             converted_path = record.get("converted_path")
@@ -449,7 +488,8 @@ def run_media_pipeline(
                 moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
             except Exception:
                 logger.exception("Moving failed for %s", converted_path)
-    print("Done")
+        if json_emitter is None:
+            print("Done")
 
     # Build report
     report_data = {
@@ -486,7 +526,9 @@ def run_media_pipeline(
 
     ps.emit_progress_stage(progress_callback, "Writing report...")
     ps.emit_progress_value(progress_callback, 0, 1)
-    print("Writing report...", end=" ")
+    _j("emit_stage", "Writing report")
+    if json_emitter is None:
+        print("Writing report...", end=" ")
     if tqdm is not None:
         with ps.progress(
             total=1, desc="Writing report", dynamic_ncols=True, ncols=80, ascii=True
@@ -495,14 +537,19 @@ def run_media_pipeline(
             rep_bar.update(1)
     else:
         report_path = reporter.write_report(output_root, report_data)
-    print("Done")
+    if json_emitter is None:
+        print("Done")
 
-    print("")
-    print("=" * 40)
-    print(f"{media_type.upper()} SORTING DONE")
-    print(f"  Review:    {report_data['results']['review']} files")
-    print(f"  Defects:   {report_data['results']['defects']} files")
-    print(f"Report saved to: {report_path}")
-    print("=" * 40)
+    # Emit summary as final JSON line when in JSON mode
+    _j("emit_summary", report_data)
+
+    if json_emitter is None:
+        print("")
+        print("=" * 40)
+        print(f"{media_type.upper()} SORTING DONE")
+        print(f"  Review:    {report_data['results']['review']} files")
+        print(f"  Defects:   {report_data['results']['defects']} files")
+        print(f"Report saved to: {report_path}")
+        print("=" * 40)
 
     return 0

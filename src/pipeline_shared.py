@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, TextIO
 
 PipelineProgressCallback = Callable[[str], None]
 
@@ -30,6 +31,58 @@ import reporter
 import scanner
 
 logger = logging.getLogger(__name__)
+
+
+class JsonEmitter:
+    """
+    Emits structured JSON Lines (one JSON object per line) to a stream.
+
+    Designed for the CLI's ``--json`` flag, where all pipeline status,
+    progress, errors, and the final summary are output as parseable JSON.
+    """
+
+    def __init__(self, stream: TextIO = sys.stdout) -> None:
+        self._stream = stream
+        self._closed = False
+
+    def emit_stage(self, stage_name: str) -> None:
+        """Emit a stage-change event."""
+        self._write({"event": "stage", "name": stage_name})
+
+    def emit_progress(self, current: int, total: int, stage: str | None = None) -> None:
+        """Emit a numeric progress update."""
+        obj: dict[str, Any] = {"event": "progress", "current": current, "total": total}
+        if stage is not None:
+            obj["stage"] = stage
+        self._write(obj)
+
+    def emit_file_done(self, file_path: str, result: str) -> None:
+        """Emit a per-file completion event."""
+        self._write({"event": "file_done", "file": file_path, "result": result})
+
+    def emit_error(self, code: str, message: str, file: str | None = None) -> None:
+        """Emit an error event."""
+        obj: dict[str, Any] = {"event": "error", "code": code, "message": message}
+        if file is not None:
+            obj["file"] = file
+        self._write(obj)
+
+    def emit_summary(self, report_data: dict[str, Any]) -> None:
+        """Emit the final summary (last line of output)."""
+        self._write({"event": "summary", "report": report_data})
+
+    def close(self) -> None:
+        """Flush and close the emitter."""
+        if not self._closed:
+            self._stream.flush()
+            self._closed = True
+
+    def _write(self, obj: dict[str, Any]) -> None:
+        """Write a single JSON line to the stream."""
+        if self._closed:
+            return
+        self._stream.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
+        self._stream.flush()
 
 
 def configure_logging(verbose: bool) -> None:

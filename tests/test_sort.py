@@ -29,7 +29,7 @@ def test_sort_cli_end_to_end(tmp_path: Path) -> None:
 
     script = Path(__file__).resolve().parents[1] / "sort.py"
     result = subprocess.run(
-        [sys.executable, str(script), str(source)],
+        [sys.executable, str(script), "photo", str(source)],
         capture_output=True,
         text=True,
     )
@@ -40,41 +40,40 @@ def test_sort_cli_end_to_end(tmp_path: Path) -> None:
 
     output = tmp_path / "TargetFolder_sorted"
     assert output.is_dir()
-    assert (output / "defects" / "photos" / "photo.jpg").is_file()
+    # In single-type mode, files go directly into bucket folders
+    assert (output / "defects" / "TargetFolder_photo_0001.jpg").is_file()
 
     report = output / "_report.txt"
     assert report.is_file()
     report_text = report.read_text(encoding="utf-8")
     assert "Total files found:" in report_text
-    assert "Files skipped:" in report_text
+    assert "Files processed:" in report_text
     assert "DETAIL LOG" in report_text
-    assert "[SKIPPED]" in report_text
+    assert "[REJECTED]" in report_text
 
 
-def test_run_qc_check_uses_image_array_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_qc_check_wrapper_uses_image_array_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pipeline_shared
     record = {
         "converted_path": "dummy.jpg",
         "detected_type": "photo",
         "image_array": object(),
     }
     config: dict[str, object] = {}
-    called: dict[str, object] = {}
-
+    
     def fake_analyze_photo(*args: object, **kwargs: object) -> dict[str, object]:
-        called["args"] = args
-        called["kwargs"] = kwargs
         return {
             "duration_check": "pass",
             "blur_check": "pass",
             "exposure_check": "pass",
             "shake_check": "pass",
             "reasons": [],
+            "frame": kwargs.get("frame")
         }
 
-    monkeypatch.setattr(sort, "analyze_photo", fake_analyze_photo)
-
-    converted_path, qc_result = sort._run_qc_check(record, config)
+    qc_functions = {"photo": fake_analyze_photo}
+    converted_path, qc_result = pipeline_shared.run_qc_check_wrapper(record, config, qc_functions)
 
     assert converted_path == "dummy.jpg"
     assert qc_result["duration_check"] == "pass"
-    assert called["kwargs"]["frame"] is record["image_array"]
+    assert qc_result["frame"] is record["image_array"]
