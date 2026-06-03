@@ -5,12 +5,42 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Literal, TextIO
+from typing import Any, Callable, Literal, TextIO, Optional
 
 PipelineProgressCallback = Callable[[str], None]
+
+
+class PipelineCancelledError(Exception):
+    """Raised when the pipeline is cancelled by the user."""
+    pass
+
+
+class CancellationToken:
+    """
+    Thread-safe token used to signal cancellation to the pipeline.
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        """Trigger cancellation."""
+        self._event.set()
+
+    def is_cancelled(self) -> bool:
+        """Check if cancellation has been triggered."""
+        return self._event.is_set()
+
+
+def check_cancelled(token: Optional[CancellationToken]) -> None:
+    """Raise PipelineCancelledError if the token is set."""
+    if token is not None and token.is_cancelled():
+        raise PipelineCancelledError("Operation cancelled by user")
+
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -56,9 +86,11 @@ class JsonEmitter:
             obj["stage"] = stage
         self._write(obj)
 
-    def emit_file_done(self, file_path: str, result: str) -> None:
+    def emit_file_done(self, file_path: str, result: str, **kwargs: Any) -> None:
         """Emit a per-file completion event."""
-        self._write({"event": "file_done", "file": file_path, "result": result})
+        obj = {"event": "file_done", "file": file_path, "result": result}
+        obj.update(kwargs)
+        self._write(obj)
 
     def emit_error(self, code: str, message: str, file: str | None = None) -> None:
         """Emit an error event."""

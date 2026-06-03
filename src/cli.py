@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+import signal
 from pathlib import Path
 from typing import Any
 
-from pipeline_shared import JsonEmitter
+from pipeline_shared import JsonEmitter, CancellationToken
 from sort_photo import sort_photo
 from sort_video import sort_video
 from sort_audio import sort_audio
@@ -30,6 +31,12 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         dest="json",
         help="Emit structured JSON Lines output instead of human-readable text",
+    )
+    parser.add_argument(
+        "-n", "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="Simulate the process without moving or converting files",
     )
 
 
@@ -93,7 +100,7 @@ def _make_emitter(args: Any) -> JsonEmitter | None:
     return None
 
 
-def _run_photo(args) -> int:
+def _run_photo(args, cancel_token: CancellationToken) -> int:
     """Run photo sorting."""
     target_folder = _validate_folder(args)
     if target_folder is None:
@@ -104,10 +111,12 @@ def _run_photo(args) -> int:
     return sort_photo(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
 
 
-def _run_video(args) -> int:
+def _run_video(args, cancel_token: CancellationToken) -> int:
     """Run video sorting."""
     target_folder = _validate_folder(args)
     if target_folder is None:
@@ -118,10 +127,12 @@ def _run_video(args) -> int:
     return sort_video(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
 
 
-def _run_audio(args) -> int:
+def _run_audio(args, cancel_token: CancellationToken) -> int:
     """Run audio sorting."""
     target_folder = _validate_folder(args)
     if target_folder is None:
@@ -132,10 +143,12 @@ def _run_audio(args) -> int:
     return sort_audio(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
 
 
-def _run_all(args) -> int:
+def _run_all(args, cancel_token: CancellationToken) -> int:
     """Run all media type sorting."""
     target_folder = _validate_folder(args)
     if target_folder is None:
@@ -146,32 +159,47 @@ def _run_all(args) -> int:
     
     if json_emitter is None:
         print("=" * 60)
-        print("Running PHOTO sorting...")
+        if args.dry_run:
+            print("DRY RUN: Running PHOTO sorting...")
+        else:
+            print("Running PHOTO sorting...")
         print("=" * 60)
     
     result_photo = sort_photo(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
     
     if json_emitter is None:
         print("\n" + "=" * 60)
-        print("Running VIDEO sorting...")
+        if args.dry_run:
+            print("DRY RUN: Running VIDEO sorting...")
+        else:
+            print("Running VIDEO sorting...")
         print("=" * 60)
     
     result_video = sort_video(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
     
     if json_emitter is None:
         print("\n" + "=" * 60)
-        print("Running AUDIO sorting...")
+        if args.dry_run:
+            print("DRY RUN: Running AUDIO sorting...")
+        else:
+            print("Running AUDIO sorting...")
         print("=" * 60)
     
     result_audio = sort_audio(
         target_folder, config_path, args.verbose,
         json_emitter=json_emitter,
+        dry_run=args.dry_run,
+        cancel_token=cancel_token,
     )
     
     if json_emitter:
@@ -190,7 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     
-    return args.func(args)
+    token = CancellationToken()
+    signal.signal(signal.SIGINT, lambda s, f: token.cancel())
+    
+    return args.func(args, token)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 
 from qc_audio import analyze_audio
 from pipeline import PipelineConfig, run_media_pipeline
+import pipeline_shared as ps
 
 
 def sort_audio(
@@ -21,6 +22,8 @@ def sort_audio(
     verbose: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     json_emitter: Any | None = None,
+    dry_run: bool = False,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> int:
     """Sort audio files only."""
     config = PipelineConfig(
@@ -31,4 +34,5 @@ def sort_audio(
     return run_media_pipeline(
         target_folder, config_path, verbose, config,
         progress_callback=progress_callback, json_emitter=json_emitter,
+        dry_run=dry_run, cancel_token=cancel_token,
     )

@@ -14,6 +14,7 @@ import threading
 
 import numpy as np
 from scanner import FileRecord
+import pipeline_shared as ps
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +362,8 @@ def convert_file(
     record: FileRecord,
     config: dict[str, Any],
     work_dir: Path | str | None = None,
+    dry_run: bool = False,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> ConvertedFileRecord:
     """
     Convert one FileRecord to a canonical file in the work directory.
@@ -368,6 +371,7 @@ def convert_file(
     For RAW files with preview strategy, returns image_array in-memory instead of temp file.
     Sets converted_path on success, or skipped=True when conversion fails.
     """
+    ps.check_cancelled(cancel_token)
     result: ConvertedFileRecord = dict(record)
     source = Path(record["original_path"])
 
@@ -377,10 +381,15 @@ def convert_file(
         return result
 
     target_dir = Path(work_dir) if work_dir is not None else get_work_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = _canonical_extension(record["detected_type"])
     dest = _allocate_output_path(target_dir, source, suffix)
+
+    if dry_run:
+        result["converted_path"] = str(dest.resolve())
+        return result
 
     success = False
     image_array = None

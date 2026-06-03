@@ -6,8 +6,10 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from classifier import Bucket
+import pipeline_shared as ps
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ def _create_bucket_tree(output_folder: Path, media_types: list[str] | None = Non
             (output_folder / "review" / "burst" / photo_sub).mkdir(parents=True, exist_ok=True)
 
 
-def setup_output_folder(target_folder: Path | str, media_types: list[str] | None = None, include_burst: bool = False) -> Path:
+def setup_output_folder(target_folder: Path | str, media_types: list[str] | None = None, include_burst: bool = False, dry_run: bool = False) -> Path:
     """
     Create sibling output folder TargetFolder_sorted/ with bucket/type subfolders.
 
@@ -90,8 +92,9 @@ def setup_output_folder(target_folder: Path | str, media_types: list[str] | None
         output_folder = parent / f"{base_name}_{stamp}"
         logger.warning("Output folder exists; using %s", output_folder)
 
-    output_folder.mkdir(parents=True, exist_ok=True)
-    _create_bucket_tree(output_folder, media_types=media_types, include_burst=include_burst)
+    if not dry_run:
+        output_folder.mkdir(parents=True, exist_ok=True)
+        _create_bucket_tree(output_folder, media_types=media_types, include_burst=include_burst)
     return output_folder.resolve()
 
 
@@ -115,6 +118,8 @@ def move_file(
     detected_type: str,
     output_folder: Path | str,
     new_filename: str | None = None,
+    dry_run: bool = False,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> Path:
     """
     Move a converted file from temp work dir into bucket/type subfolder.
@@ -125,8 +130,10 @@ def move_file(
     If new_filename is provided, use it for the destination file name.
     Does not modify the original TargetFolder.
     """
+    ps.check_cancelled(cancel_token)
     source = Path(converted_path)
-    if not source.is_file():
+    # In dry_run, the converted_path is simulated and might not exist on disk
+    if not dry_run and not source.is_file():
         raise FileNotFoundError(f"Converted file not found: {source}")
 
     root = Path(output_folder).resolve()
@@ -144,8 +151,14 @@ def move_file(
         else:
             dest_dir = root / output_bucket
 
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        if not dry_run:
+            dest_dir.mkdir(parents=True, exist_ok=True)
         filename = new_filename if new_filename is not None else source.name
+        
+        if dry_run:
+            # Simple prediction for dry run
+            return (dest_dir / filename).resolve()
+            
         destination = _allocate_destination(dest_dir, filename)
         shutil.move(str(source), str(destination))
         logger.info("Moved %s -> %s", source, destination)
@@ -156,10 +169,6 @@ def move_file(
         raise ValueError(f"Invalid bucket: {bucket}")
     if bucket == "burst" and detected_type != "photo":
         raise ValueError("Burst bucket is only supported for photos")
-
-    source = Path(converted_path)
-    if not source.is_file():
-        raise FileNotFoundError(f"Converted file not found: {source}")
 
     root = Path(output_folder).resolve()
     output_bucket = BUCKET_TO_OUTPUT[bucket]
@@ -185,8 +194,14 @@ def move_file(
             else:
                 dest_dir = root / output_bucket / _type_subfolder(detected_type)
 
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        dest_dir.mkdir(parents=True, exist_ok=True)
     filename = new_filename if new_filename is not None else source.name
+    
+    if dry_run:
+        # Simple prediction for dry run
+        return (dest_dir / filename).resolve()
+        
     destination = _allocate_destination(dest_dir, filename)
     shutil.move(str(source), str(destination))
     logger.info("Moved %s -> %s", source, destination)
