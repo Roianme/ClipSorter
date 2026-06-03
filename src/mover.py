@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from classifier import Bucket
+from src.pipeline_shared import Bucket
 import pipeline_shared as ps
 
 logger = logging.getLogger(__name__)

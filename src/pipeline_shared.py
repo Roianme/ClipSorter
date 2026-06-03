@@ -11,6 +11,8 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Literal, TextIO, Optional
 
+Bucket = Literal["clean", "review", "rejected", "burst"]
+
 PipelineProgressCallback = Callable[[str], None]
 
 

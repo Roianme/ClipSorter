@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from pipeline_shared import JsonEmitter, PipelineProgressCallback
+from src.pipeline_shared import JsonEmitter, PipelineProgressCallback
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -235,7 +235,7 @@ def run_media_pipeline(
                 print("Detecting burst groups...", end=" ")
             
             try:
-                burst_groups = duplicate.find_burst_groups(media_paths, config)
+                burst_groups = duplicate.find_burst_groups(media_paths, config, cancel_token=cancel_token)
             except Exception:
                 logger.exception("Burst detection failed")
             
@@ -318,6 +318,7 @@ def run_media_pipeline(
         
         # Simplified move logic using same iterator structure
         for record in converted_records:
+            ps.check_cancelled(cancel_token)
             converted_path = record.get("converted_path")
             if not converted_path or record.get("skipped"):
                 continue
@@ -423,7 +424,14 @@ def run_media_pipeline(
         if json_emitter is None:
             print("Done")
 
-        # Emit summary as final JSON line when in JSON mode
+        # Emit summary as final event to callback and JSON mode
+        summary_event = {"event": "summary", "report": report_data}
+        if progress_callback:
+            # Need to decide how to pass complex dict to callback.
+            # Currently callback expects a string.
+            # Let's add a new token for summary.
+            import json
+            progress_callback(f"__SUMMARY__:{json.dumps(report_data)}")
         _j("emit_summary", report_data)
 
         if json_emitter is None:
