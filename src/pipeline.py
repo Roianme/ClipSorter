@@ -69,6 +69,8 @@ def run_media_pipeline(
     json_emitter: JsonEmitter | None = None,
     dry_run: bool = False,
     cancel_token: ps.CancellationToken | None = None,
+    # New parameter to allow passing already scanned records
+    pre_scanned_records: tuple[list[scanner.FileRecord], list[dict[str, Any]]] | None = None,
 ) -> int:
     """Run media sorting pipeline for a specific media type."""
     ps.configure_logging(verbose)
@@ -96,14 +98,28 @@ def run_media_pipeline(
         # Scan for media type
         ps.emit_progress_stage(progress_callback, "Scanning files...")
         _j("emit_stage", "Scanning files")
-        supported_records, unsupported_entries = ps.scan_source_folder(
-            source_folder,
-            media_types=[media_type],
-            progress_callback=progress_callback,
-        )
+        
+        if pre_scanned_records:
+            all_supported, all_unsupported = pre_scanned_records
+            supported_records = [r for r in all_supported if r["detected_type"] == media_type]
+            unsupported_entries = all_unsupported # Simplification
+        else:
+            supported_records, unsupported_entries = ps.scan_source_folder(
+                source_folder,
+                media_types=[media_type],
+                progress_callback=progress_callback,
+            )
         total_files_found = sum(1 for path in source_folder.rglob("*") if path.is_file())
         files_processed = len(supported_records)
         files_skipped = len(unsupported_entries)
+        
+        # Check if we have anything to do
+        if files_processed == 0:
+            if json_emitter is None:
+                print(f"No {media_type} files found to process.")
+            else:
+                _j("emit_summary", {"results": {"review": 0, "defects": 0}})
+            return 0
 
         output_root = mover.setup_output_folder(
             source_folder, media_types=[media_type], include_burst=pipeline_config.enable_burst,

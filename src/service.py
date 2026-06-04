@@ -11,6 +11,7 @@ from src.pipeline_shared import CancellationToken, PipelineCancelledError
 from src.qc_audio import analyze_audio
 from src.qc_photo import analyze_photo
 from src.qc_video import analyze_video
+from src import scanner
 
 logger = logging.getLogger(__name__)
 
@@ -75,57 +76,64 @@ class MediaPipelineService:
             self._emit({"event": "error", "code": "INVALID_FOLDER", "message": "Target folder not found"})
             return {"error": "INVALID_FOLDER"}
 
-        # Map mode to pipeline configuration
-        qc_func = {
+        # Scan ONCE for all media types if mode is 'all'
+        modes = ["photo", "video", "audio"] if self.mode == "all" else [self.mode]
+        
+        # Pre-scan
+        all_records = scanner.scan_folder(self.target_folder)
+        all_unsupported: list[dict[str, Any]] = [] # We need to handle this manually now?
+        pre_scanned = (all_records, all_unsupported)
+        
+        qc_funcs = {
             "photo": analyze_photo,
             "video": analyze_video,
             "audio": analyze_audio,
-        }.get(self.mode)
-
-        if not qc_func:
-            self._emit({"event": "error", "code": "INVALID_MODE", "message": f"Unsupported mode: {self.mode}"})
-            return {"error": "INVALID_MODE"}
-
-        pipeline_config = PipelineConfig(
-            media_type=self.mode,
-            qc_function=qc_func,
-            enable_burst=(self.mode == "photo"),
-        )
-
-        try:
-            # Check for cancellation before starting
-            from src.pipeline_shared import check_cancelled
-            check_cancelled(self.cancel_token)
-            
-            exit_code = run_media_pipeline(
-                self.target_folder,
-                self.config_path,
-                verbose=False,
-                pipeline_config=pipeline_config,
-                # Pass the bridge callback
-                progress_callback=self._handle_internal_callback,
-                dry_run=self.dry_run,
-                cancel_token=self.cancel_token,
-                # Emitter is optional, and I have a progress_callback.
-                # If I want summary event in callback, I'd need to emit it in run_media_pipeline 
-                # or ensure progress_callback gets it.
+        }
+        
+        all_success = True
+        
+        for mode in modes:
+            qc_func = qc_funcs.get(mode)
+            if not qc_func:
+                self._emit({"event": "error", "code": "INVALID_MODE", "message": f"Unsupported mode: {mode}"})
+                continue
+                
+            pipeline_config = PipelineConfig(
+                media_type=mode,
+                qc_function=qc_func,
+                enable_burst=(mode == "photo"),
             )
             
-            # The summary event is only emitted to json_emitter!
-            # I must fix run_media_pipeline to emit it to progress_callback.
-            
-            if exit_code == 0:
-                return {"status": "success"}
-            elif exit_code == 130:
+            try:
+                # Check for cancellation before starting
+                from src.pipeline_shared import check_cancelled
+                check_cancelled(self.cancel_token)
+                
+                exit_code = run_media_pipeline(
+                    self.target_folder,
+                    self.config_path,
+                    verbose=False,
+                    pipeline_config=pipeline_config,
+                    progress_callback=self._handle_internal_callback,
+                    dry_run=self.dry_run,
+                    cancel_token=self.cancel_token,
+                    pre_scanned_records=pre_scanned
+                )
+                
+                if exit_code != 0:
+                    all_success = False
+                    if exit_code == 130:
+                        self._emit({"event": "cancelled"})
+                        return {"status": "cancelled"}
+                    else:
+                        self._emit({"event": "error", "code": "PIPELINE_ERROR", "message": f"Pipeline failed for {mode} with code {exit_code}"})
+                
+            except PipelineCancelledError:
                 self._emit({"event": "cancelled"})
                 return {"status": "cancelled"}
-            else:
-                return {"status": "failed", "exit_code": exit_code}
-
-        except PipelineCancelledError:
-            self._emit({"event": "cancelled"})
-            return {"status": "cancelled"}
-        except Exception as e:
-            logger.exception("Pipeline failed")
-            self._emit({"event": "error", "code": "PIPELINE_ERROR", "message": str(e)})
-            return {"status": "failed", "message": str(e)}
+            except Exception as e:
+                logger.exception("Pipeline failed")
+                self._emit({"event": "error", "code": "PIPELINE_ERROR", "message": str(e)})
+                return {"status": "failed", "message": str(e)}
+        
+        return {"status": "success" if all_success else "failed"}
