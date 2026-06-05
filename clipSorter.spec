@@ -2,12 +2,26 @@
 
 block_cipher = None
 
+# Paths to external dependencies
+ffmpeg_path = r'C:\Users\Bogie\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe'
+ffprobe_path = r'C:\Users\Bogie\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffprobe.exe'
+yolo_model = 'yolov8n.pt'
+
+# Common data and binaries to bundle
+common_datas = [
+    (yolo_model, '.'),
+]
+common_binaries = [
+    (ffmpeg_path, '.'),
+    (ffprobe_path, '.'),
+]
+
 # GUI Application
 a_gui = Analysis(
-    ['src/app.py'],
+    ['app.py'], # Note: app.py is in root
     pathex=[],
-    binaries=[],
-    datas=[],
+    binaries=common_binaries,
+    datas=common_datas,
     hiddenimports=['tkinterdnd2'],
     hookspath=[],
     hooksconfig={},
@@ -43,10 +57,10 @@ exe_gui = EXE(
 
 # CLI Tool
 a_cli = Analysis(
-    ['src/cli.py'],
+    ['sort.py'], # Note: sort.py is in root, which calls cli.main()
     pathex=[],
-    binaries=[],
-    datas=[],
+    binaries=common_binaries,
+    datas=common_datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
