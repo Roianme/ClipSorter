@@ -153,9 +153,8 @@ def _detect_mime(path: Path) -> str | None:
 
 def classify_file(path: Path) -> DetectedType:
     """
-    Classify a file using libmagic, with extension fallback only when
-    magic is inconclusive (e.g. RAW photos as application/octet-stream) or
-    when MIME is application/mp4 (which could be .m4a audio).
+    Classify a file using libmagic, with extension fallback when
+    magic is inconclusive or unknown.
     """
     extension = _normalize_extension(path)
 
@@ -166,19 +165,21 @@ def classify_file(path: Path) -> DetectedType:
     if mime:
         detected = _mime_to_type(mime)
         if detected != "unknown":
+            # Special case: application/mp4 could be audio (m4a)
+            normalized = mime.split(";")[0].strip().lower()
+            if normalized == "application/mp4":
+                return _extension_type(extension)
             return detected
 
         normalized = mime.split(";")[0].strip().lower()
-        # For ambiguous MIME types, fall back to extension
-        if normalized in _INCONCLUSIVE_MIMES or normalized == "application/mp4":
+        # For ambiguous or unknown MIME types, fall back to extension
+        if normalized in _INCONCLUSIVE_MIMES or detected == "unknown":
             return _extension_type(extension)
 
         return "unknown"
 
-    if extension in SUPPORTED_EXTENSIONS:
-        return _extension_type(extension)
-
-    return "unknown"
+    # No MIME detected, rely entirely on extension
+    return _extension_type(extension)
 
 
 def _build_record(path: Path, detected_type: Literal["video", "photo", "audio"]) -> FileRecord:
@@ -195,13 +196,23 @@ def scan_folder(
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[FileRecord]:
     """
-    Recursively scan target_folder and return supported media FileRecords.
+    Recursively scan target_folder (or a single file) and return supported media FileRecords.
 
     Unknown or unsupported files are skipped and logged.
     """
     root = Path(target_folder)
+    if not root.exists():
+        raise FileNotFoundError(f"Target path does not exist: {root}")
+
+    # Support single file input
+    if root.is_file():
+        detected = classify_file(root)
+        if detected != "unknown":
+            return [_build_record(root, detected)]
+        return []
+
     if not root.is_dir():
-        raise NotADirectoryError(f"Target folder does not exist or is not a directory: {root}")
+        raise NotADirectoryError(f"Target path is neither a file nor a directory: {root}")
 
     records: list[FileRecord] = []
     total_files = sum(len(filenames) for _, _, filenames in os.walk(root))

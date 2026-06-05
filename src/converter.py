@@ -7,8 +7,9 @@ import shutil
 import subprocess
 import tempfile
 import io
+import re
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict, Callable, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 import threading
 
@@ -39,6 +40,8 @@ CANONICAL_EXTENSIONS: dict[str, frozenset[str]] = {
 
 WORK_DIR_NAME = "clipsorter_work"
 
+SubProgressCallback = Callable[[float], None]
+
 
 class ConvertedFileRecord(FileRecord, total=False):
     converted_path: NotRequired[str]
@@ -62,6 +65,12 @@ def _canonical_extension(detected_type: str) -> str:
 
 
 def _is_canonical(record: FileRecord) -> bool:
+    """
+    Check if a file is already in a canonical extension.
+    For videos, we return False to force a deeper check of codec and resolution.
+    """
+    if record["detected_type"] == "video":
+        return False
     extension = record["extension"].lower()
     return extension in CANONICAL_EXTENSIONS[record["detected_type"]]
 
@@ -120,20 +129,73 @@ def _is_h264(codec: str | None) -> bool:
     return codec in {"h264", "avc1"}
 
 
+def _video_resolution(source: Path) -> tuple[int, int] | None:
+    """Get (width, height) of video using ffprobe."""
+    if not _ffprobe_available():
+        return None
+
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=s=x:p=0",
+        str(source),
+    ]
+    result = _run_command(cmd)
+    if result.returncode != 0:
+        return None
+
+    try:
+        parts = result.stdout.strip().split("x")
+        if len(parts) >= 2:
+            return int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 def _log_ffmpeg_failure(source: Path, result: subprocess.CompletedProcess[str]) -> None:
     detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
     logger.error("FFmpeg failed for %s: %s", source, detail)
 
 
-def _convert_video(source: Path, dest: Path, config: dict[str, Any]) -> bool:
+def _convert_video(
+    source: Path, 
+    dest: Path, 
+    config: dict[str, Any],
+    sub_progress: SubProgressCallback | None = None,
+) -> bool:
     if not _ffmpeg_available():
         logger.error("ffmpeg not found in PATH; cannot convert %s", source)
         return False
 
     codec = _video_codec_name(source)
-    if _is_h264(codec):
+    res = _video_resolution(source)
+    standardize = config.get("video_standardize_1080p", False)
+
+    logger.info("Converting video %s: codec=%s, resolution=%s, standardize=%s", 
+                source.name, codec, res, standardize)
+
+    # Determine if we actually need to rescale
+    needs_rescale = False
+    if standardize and res:
+        # If height is not 1080, we need to rescale
+        if res[1] != 1080:
+            needs_rescale = True
+
+    # If already H.264 and no standardization/rescale needed, just copy
+    if _is_h264(codec) and not needs_rescale:
+        logger.info("Video %s is already H.264 and 1080p-compliant; copying.", source.name)
         cmd = ["ffmpeg", "-y", "-i", str(source), "-c", "copy", str(dest)]
+        result = _run_command(cmd)
     else:
+        logger.info("Transcoding video %s (codec=%s, rescale=%s)", source.name, codec, needs_rescale)
+        # Transcode (needed for format change or resizing)
         cmd = [
             "ffmpeg",
             "-y",
@@ -143,17 +205,75 @@ def _convert_video(source: Path, dest: Path, config: dict[str, Any]) -> bool:
             str(config["video_output_codec"]),
             "-crf",
             str(config["video_output_crf"]),
-            "-c:a",
-            "aac",
-            str(dest),
+            "-preset", "faster",
+            "-pix_fmt", "yuv420p",  # Essential for broad compatibility (Windows Media Player, etc.)
+            "-c:a", "aac",
+            "-b:a", "128k",
         ]
 
-    result = _run_command(cmd)
+        if needs_rescale:
+            # Scale to 1080p while maintaining aspect ratio, 
+            # ensuring width is divisible by 2 for the encoder.
+            cmd.extend(["-vf", "scale=-2:1080"])
+
+        cmd.append(str(dest))
+        
+        if sub_progress:
+            result = _run_ffmpeg_with_progress(cmd, source, sub_progress)
+        else:
+            result = _run_command(cmd)
+
     if result.returncode != 0:
         _log_ffmpeg_failure(source, result)
         return False
 
     return dest.is_file()
+
+
+def _run_ffmpeg_with_progress(
+    cmd: list[str], 
+    source: Path, 
+    callback: SubProgressCallback
+) -> subprocess.CompletedProcess[str]:
+    """Run FFmpeg and parse its output for progress (time=...)."""
+    # Import locally to avoid potential circular dependency issues
+    from src.qc_video import _run_ffprobe_duration_seconds
+    duration = _run_ffprobe_duration_seconds(source)
+    
+    if not duration:
+        return _run_command(cmd)
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    full_output = []
+    time_re = re.compile(r"time=(\d+):(\d+):(\d+)\.(\d+)")
+
+    while True:
+        line = process.stdout.readline()
+        if not line and process.poll() is not None:
+            break
+        if line:
+            full_output.append(line)
+            match = time_re.search(line)
+            if match:
+                h, m, s, _ms = map(int, match.groups())
+                elapsed = h * 3600 + m * 60 + s
+                progress_val = min(1.0, elapsed / duration)
+                callback(progress_val)
+
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=process.returncode,
+        stdout="".join(full_output),
+        stderr="",  # stderr merged into stdout via stderr=STDOUT in Popen
+    )
 
 
 def _convert_audio(source: Path, dest: Path, config: dict[str, Any]) -> bool:
@@ -334,14 +454,6 @@ def _convert_photo_raw(source: Path, dest: Path, timeout_sec: int, strategy: str
 def _convert_photo(source: Path, dest: Path, extension: str, timeout_sec: int, strategy: str) -> tuple[bool, np.ndarray | None]:
     """
     Convert photo file. For RAW with preview strategy, optionally return in-memory array.
-    
-    Returns: (success, image_array_or_none)
-    
-    For RAW with preview/auto strategy:
-      - If successful, returns (True, numpy_array)
-      - On auto with fallback, returns (True, array_from_preview)
-    For all other photos:
-      - Returns (success_bool, None)
     """
     ext = extension.lower()
     if ext in RAW_EXTENSIONS:
@@ -364,12 +476,10 @@ def convert_file(
     work_dir: Path | str | None = None,
     dry_run: bool = False,
     cancel_token: Optional[ps.CancellationToken] = None,
+    sub_progress: SubProgressCallback | None = None,
 ) -> ConvertedFileRecord:
     """
     Convert one FileRecord to a canonical file in the work directory.
-
-    For RAW files with preview strategy, returns image_array in-memory instead of temp file.
-    Sets converted_path on success, or skipped=True when conversion fails.
     """
     ps.check_cancelled(cancel_token)
     result: ConvertedFileRecord = dict(record)
@@ -398,12 +508,16 @@ def convert_file(
         try:
             shutil.copy2(source, dest)
             success = dest.is_file()
+            if success and sub_progress:
+                sub_progress(1.0)
         except OSError as exc:
             logger.error("Failed to copy canonical file %s: %s", source, exc)
     elif record["detected_type"] == "video":
-        success = _convert_video(source, dest, config)
+        success = _convert_video(source, dest, config, sub_progress=sub_progress)
     elif record["detected_type"] == "audio":
         success = _convert_audio(source, dest, config)
+        if success and sub_progress:
+            sub_progress(1.0)
     elif record["detected_type"] == "photo":
         convert_result = _convert_photo(
             source,
@@ -417,6 +531,8 @@ def convert_file(
         else:
             success = bool(convert_result)
             image_array = None
+        if success and sub_progress:
+            sub_progress(1.0)
     else:
         logger.error("Unsupported detected_type for conversion: %s", record["detected_type"])
 

@@ -47,6 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "silence_ratio_threshold": 0.8,
     "video_output_codec": "libx264",
     "video_output_crf": 18,
+    "video_standardize_1080p": True,
     "audio_output_bitrate": "192k",
     "raw_conversion_timeout_sec": 120,
     "raw_conversion_strategy": "auto",

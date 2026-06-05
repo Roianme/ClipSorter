@@ -60,6 +60,16 @@ class MediaPipelineService:
             parts = message.split(":", 1)[1].split("/")
             if len(parts) == 2:
                 self._emit({"event": "progress", "current": int(parts[0]), "total": int(parts[1])})
+        elif message.startswith("__SUBPROGRESS__:"):
+            # format: current_index/total:percent:filename
+            parts = message.split(":", 1)[1].split(":")
+            if len(parts) >= 2:
+                self._emit({
+                    "event": "sub_progress",
+                    "file_info": parts[0],
+                    "percent": float(parts[1]),
+                    "filename": parts[2] if len(parts) > 2 else ""
+                })
         elif message.startswith("__SUMMARY__:"):
             import json
             report_data = json.loads(message.split(":", 1)[1])
@@ -72,8 +82,8 @@ class MediaPipelineService:
         """
         Run the pipeline synchronously.
         """
-        if not self.target_folder.exists() or not self.target_folder.is_dir():
-            self._emit({"event": "error", "code": "INVALID_FOLDER", "message": "Target folder not found"})
+        if not self.target_folder.exists():
+            self._emit({"event": "error", "code": "INVALID_FOLDER", "message": "Target path not found"})
             return {"error": "INVALID_FOLDER"}
 
         # Scan ONCE for all media types if mode is 'all'

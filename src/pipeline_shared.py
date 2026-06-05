@@ -172,7 +172,7 @@ def scan_source_folder(
     media_types: list[str] | None = None,
     progress_callback: PipelineProgressCallback | None = None,
 ) -> tuple[list[scanner.FileRecord], list[dict[str, Any]]]:
-    """Scan source folder and filter by media types."""
+    """Scan source folder (or file) and filter by media types."""
     all_records = scanner.scan_folder(source_folder, progress_callback=progress_callback)
     
     # Filter by media types if specified
@@ -184,20 +184,32 @@ def scan_source_folder(
     supported_set = {Path(record["original_path"]).resolve() for record in supported}
     skipped_entries: list[dict[str, Any]] = []
 
-    for path in sorted(source_folder.rglob("*")):
-        if not path.is_file():
-            continue
-        resolved = path.resolve()
-        if resolved in supported_set:
-            continue
-        skipped_entries.append(
-            {
-                "bucket": "skipped",
-                "final_path": relative_path(source_folder, path),
-                "original_path": relative_path(source_folder, path),
-                "reason": "Unsupported or non-matching file type",
-            }
-        )
+    # Handle single file or directory for skipped/unsupported check
+    if source_folder.is_file():
+        if source_folder.resolve() not in supported_set:
+            skipped_entries.append(
+                {
+                    "bucket": "skipped",
+                    "final_path": relative_path(source_folder.parent, source_folder),
+                    "original_path": relative_path(source_folder.parent, source_folder),
+                    "reason": "Unsupported or non-matching file type",
+                }
+            )
+    else:
+        for path in sorted(source_folder.rglob("*")):
+            if not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved in supported_set:
+                continue
+            skipped_entries.append(
+                {
+                    "bucket": "skipped",
+                    "final_path": relative_path(source_folder, path),
+                    "original_path": relative_path(source_folder, path),
+                    "reason": "Unsupported or non-matching file type",
+                }
+            )
 
     return supported, skipped_entries
 
@@ -261,6 +273,7 @@ def run_qc_check_wrapper(
     record: converter.ConvertedFileRecord,
     config: dict[str, Any],
     qc_functions: dict[str, Callable],
+    sub_progress: converter.SubProgressCallback | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run QC analysis on a single file."""
     converted_path = record.get("converted_path")
@@ -283,14 +296,24 @@ def run_qc_check_wrapper(
         qc_func = qc_functions[detected_type]
         
         if detected_type == "video":
-            return converted_path, qc_func(converted_path, config)
+            return converted_path, qc_func(converted_path, config, sub_progress=sub_progress)
         elif detected_type == "photo":
+            if sub_progress:
+                sub_progress(0.5) # Generic mid-point for photos
             if image_array is not None:
-                return converted_path, qc_func(config=config, frame=image_array)
+                res = qc_func(config=config, frame=image_array)
             else:
-                return converted_path, qc_func(converted_path, config)
+                res = qc_func(converted_path, config)
+            if sub_progress:
+                sub_progress(1.0)
+            return converted_path, res
         elif detected_type == "audio":
-            return converted_path, qc_func(converted_path, config)
+            if sub_progress:
+                sub_progress(0.5)
+            res = qc_func(converted_path, config)
+            if sub_progress:
+                sub_progress(1.0)
+            return converted_path, res
         else:
             return converted_path, {
                 "duration_check": "pass",
@@ -393,14 +416,7 @@ def choose_best_burst_representatives(
 def converted_from_text(record: scanner.FileRecord) -> str:
     """Get conversion status text."""
     extension = record["extension"].lower()
-    canonical = {
-        "video": ".mp4",
-        "audio": ".mp3",
-        "photo": ".jpg",
-    }
-    if extension == canonical[record["detected_type"]]:
-        return f"{extension} (no conversion needed)"
-    return extension
+    return f"Original: {extension}"
 
 
 def build_report_entries(

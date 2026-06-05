@@ -1,6 +1,15 @@
 # ClipSorter Usage Guide
 
-ClipSorter supports separate sorting of **photos**, **videos**, and **audio** files as independent instances. You can process each media type separately or together.
+ClipSorter is a non-destructive QC sorting tool for raw media folders. It scans your media, converts it to standard formats, runs quality checks, and organizes the results into a new folder.
+
+## Getting Started
+
+1.  **Prepare your media:** Place your raw photos, videos, or audio files in a folder (e.g., `C:\MyRawMedia`).
+2.  **Run ClipSorter:** Open a terminal and run the tool pointing to that folder:
+    ```bash
+    python sort.py all "C:\MyRawMedia"
+    ```
+3.  **Check the Results:** A new folder named `C:\MyRawMedia_sorted` will be created. Inside, you'll find your files **renamed and organized** into subfolders, along with a summary report.
 
 ## Installation
 
@@ -14,103 +23,81 @@ pip install -r requirements.txt
 
 ## Desktop GUI
 
+For a visual experience, run the desktop application:
+
 ```bash
 python app.py
 ```
 
-## Basic Usage
+## Basic Usage (CLI)
 
 ### Sort Photos Only
-
 ```bash
-python sort.py photo "E:\DMM Aus\chron sg\110D7000"
+python sort.py photo "C:\Path\To\Media"
 ```
-
-Processes only `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tiff`, `.tif`, `.webp` files.
-
-**Features for photos:**
-- Burst group detection and representative selection
-- Blur and exposure QC checks
-- Photo-specific duplicate detection
+Processes `.jpg`, `.png`, `.arw`, etc. Includes burst detection.
 
 ### Sort Videos Only
-
 ```bash
-python sort.py video "E:\DMM Aus\chron sg\110D7000"
+python sort.py video "C:\Path\To\Media"
 ```
-
-Processes only `.mp4`, `.mov`, `.mxf`, `.avi`, `.mkv`, `.wmv`, `.mts`, `.m2ts`, `.3gp`, `.flv`, `.webm`, `.ts`, `.vob` files.
-
-**Features for videos:**
-- Steady shot QC checks
-- Video-specific duplicate detection
+Processes `.mp4`, `.mov`, `.mxf`, etc. Includes steady-shot detection.
 
 ### Sort Audio Only
-
 ```bash
-python sort.py audio "E:\DMM Aus\chron sg\110D7000"
+python sort.py audio "C:\Path\To\Media"
 ```
-
-Processes only `.mp3`, `.m4a`, `.aac`, `.flac`, `.wav`, `.wma`, `.ogg` files.
-
-**Features for audio:**
-- Silence detection QC checks
-- Audio-specific duplicate detection
+Processes `.mp3`, `.wav`, etc. Includes silence detection.
 
 ### Sort All Media Types
-
 ```bash
-python sort.py all "E:\DMM Aus\chron sg\110D7000"
+python sort.py all "C:\Path\To\Media"
 ```
+Runs all pipelines sequentially.
 
-Runs all three sorting pipelines sequentially:
-1. Photo sorting
-2. Video sorting
-3. Audio sorting
+## Expected Outputs
 
-Each completes with its own report.
+When you run ClipSorter on a folder (e.g., `MyMedia`), it creates a **sibling folder** named `MyMedia_sorted`. The original folder remains completely untouched.
 
-## Advanced Options
-
-### With Custom Config
-
-```bash
-python sort.py photo "E:\DMM Aus\chron sg\110D7000" --config custom_config.json
-```
-
-### With Verbose Output
-
-```bash
-python sort.py video "E:\DMM Aus\chron sg\110D7000" --verbose
-```
-
-Shows debug-level logging for troubleshooting.
-
-### Combined Options
-
-```bash
-python sort.py audio "E:\DMM Aus\chron sg\110D7000" --config custom.json --verbose
-```
-
-## Output Structure
-
-Each run creates organized output in the source folder:
+### Output Folder Structure
 
 ```
-source_folder/
-├── usable/
-│   ├── photo/      (high-quality photos)
-│   ├── video/      (high-quality videos)
-│   └── audio/      (high-quality audio)
-├── defects/
-│   ├── photo/      (photos with issues)
-│   ├── video/      (videos with issues)
-│   └── audio/      (audio with issues)
-├── burst/          (burst photo groups, only from photo run)
-├── duplicates/     (duplicate files)
-└── reports/
-    └── report_TIMESTAMP.json
+MyMedia_sorted/
+├── _report.txt         (Human-readable summary of every decision)
+├── review/             (Files that passed QC or need minor review)
+│   ├── photos/
+│   ├── videos/
+│   ├── audio/
+│   └── burst/          (Burst photo groups, non-representatives)
+└── defects/            (Files that failed quality checks)
+    ├── photos/
+    ├── videos/
+    └── audio/
 ```
+
+### Bucket Definitions
+
+*   **review/**: This is your primary output. It contains "Clean" files that passed all quality checks, and files that are usable but might benefit from a quick look (e.g., slightly shaky video or suspected duplicates).
+*   **defects/**: Files that failed significant quality checks. This includes very blurry photos, extremely underexposed/overexposed media, or silent audio clips.
+*   **burst/** (Photos only): When a burst of photos is detected, the best shot is moved to `review/photos`, and the rest are placed in `review/burst` to keep your main gallery clean while preserving all shots.
+
+### File Renaming Mechanics
+
+To keep your sorted media organized and easily searchable, ClipSorter automatically renames every file moved to the output folder.
+
+**The Naming Pattern:**
+`[SourceFolderName]_[MediaType]_[SequenceNumber].[Extension]`
+
+*   **Source Folder Name**: The name of the root folder you selected (e.g., `MyMedia`).
+*   **Media Type**: The detected type of the file (`photo`, `video`, or `audio`).
+*   **Sequence Number**: A 4-digit counter starting at `0001` that increments for every file processed in the current run.
+*   **Extension**: The canonical extension for that media type (`.jpg`, `.mp4`, or `.mp3`).
+
+**Example:**
+If sorting a folder named `Vacation`, the first photo moved will be `Vacation_photo_0001.jpg`.
+
+**Collision Handling:**
+ClipSorter is designed to be safe. If a file with the generated name already exists in the destination folder (for example, if you run the tool multiple times on the same output folder), it will append a unique suffix like `_1`, `_2`, etc., to prevent overwriting any existing data.
 
 ## Pipeline Stages (Per Media Type)
 
@@ -153,43 +140,52 @@ source_folder/
 - Organizes by quality and type
 
 ### 8. Report Generation
-- Creates JSON report with full pipeline summary
-- Includes file-by-file analysis and QC results
+- Creates a comprehensive text report (`_report.txt`) with a full pipeline summary
+- Includes file-by-file analysis, QC results, and original file paths
 
 ## Report Output
 
-Each run generates a timestamped JSON report in `reports/`:
+Each run generates a detailed report named `_report.txt` in the root of the output folder:
 
-```json
-{
-  "run_date": "2026-06-01 14:23:45",
-  "media_type": "photo",
-  "source_folder": "E:\\DMM Aus\\chron sg\\110D7000",
-  "output_folder": "E:\\DMM Aus\\chron sg\\110D7000",
-  "total_files_found": 150,
-  "files_processed": 145,
-  "files_skipped": 5,
-  "converted_counts": {"jpg": 145},
-  "results": {
-    "usable": 132,
-    "defects": 13
-  },
-  "entries": [
-    {
-      "bucket": "usable",
-      "final_path": "usable/photo/IMG_001.jpg",
-      "original_path": "/original/IMG_001.jpg",
-      "converted_from": ".jpg (no conversion needed)",
-      "metadata": {
-        "Duration": "PASS",
-        "Blur": "PASS",
-        "Exposure": "PASS"
-      },
-      "flags": []
-    },
-    ...
-  ]
-}
+```text
+========================================
+CLIPSORTER REPORT
+Run date: 2026-06-01 14:23:45
+Source folder: C:\MyMedia
+Output folder: C:\MyMedia_sorted
+========================================
+
+SUMMARY
+-------
+Total files found:        150
+Files processed:          145
+Files skipped:            5  (unsupported type)
+
+Converted to mp4:         10
+Converted to jpg:         135
+Converted to mp3:         0
+
+Results:
+  Review:                 132
+  Defects:                 13
+
+========================================
+DETAIL LOG
+========================================
+
+[REVIEW]   photos/MyMedia_photo_0001.jpg
+           Original: /original/IMG_001.jpg
+           Converted from: .jpg (no conversion needed)
+           Duration: PASS | Blur: PASS | Exposure: PASS
+
+[DEFECTS]  photos/MyMedia_photo_0015.jpg
+           Original: /original/IMG_0015.jpg
+           Blur: REJECTED (Laplacian variance: 12.4, threshold: 80.0)
+
+...
+========================================
+END OF REPORT
+========================================
 ```
 
 ## Examples
@@ -201,7 +197,7 @@ Each run generates a timestamped JSON report in `reports/`:
 python sort.py photo "C:\Media\2024_Events"
 
 # Check results in the report
-# Output: C:\Media\2024_Events\reports\report_*.json
+# Output: C:\Media\2024_Events_sorted\_report.txt
 ```
 
 ### Workflow 2: Separate Processing by Type
@@ -223,9 +219,8 @@ python sort.py audio "D:\Raw_Media"
 # Process all media types at once
 python sort.py all "D:\Raw_Media" --verbose
 
-# View results
-cd D:\Raw_Media\reports
-type report_*.json | findstr "usable\|defects"
+# View summary results at the end of the run
+# Check D:\Raw_Media_sorted\_report.txt for details
 ```
 
 ### Workflow 4: Use Custom Settings

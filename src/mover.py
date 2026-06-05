@@ -83,7 +83,9 @@ def setup_output_folder(target_folder: Path | str, media_types: list[str] | None
     If that path already exists, append a timestamp suffix per Section 13.
     """
     target = Path(target_folder).resolve()
-    base_name = f"{target.name}_sorted"
+    # Use stem for files to avoid extension in folder name (e.g. video_sorted/ instead of video.mp4_sorted/)
+    name_to_use = target.stem if target.is_file() else target.name
+    base_name = f"{name_to_use}_sorted"
     parent = target.parent
     output_folder = parent / base_name
 

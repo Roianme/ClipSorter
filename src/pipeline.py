@@ -109,7 +109,12 @@ def run_media_pipeline(
                 media_types=[media_type],
                 progress_callback=progress_callback,
             )
-        total_files_found = sum(1 for path in source_folder.rglob("*") if path.is_file())
+            
+        if source_folder.is_file():
+            total_files_found = 1
+        else:
+            total_files_found = sum(1 for path in source_folder.rglob("*") if path.is_file())
+            
         files_processed = len(supported_records)
         files_skipped = len(unsupported_entries)
         
@@ -135,6 +140,15 @@ def run_media_pipeline(
         else:
             json_emitter.emit_file_done(str(output_root), "output_folder")
 
+        # --- Progress Helper ---
+        def _make_sub_cb(file_record: scanner.FileRecord, total_count: int, completed_count: int):
+            def _sub_cb(percent: float):
+                # Emit sub-progress event: __SUBPROGRESS__:current_file_index/total_files:percent:filename
+                file_name = Path(file_record["original_path"]).name
+                if progress_callback:
+                    progress_callback(f"__SUBPROGRESS__:{completed_count+1}/{total_count}:{percent:.2f}:{file_name}")
+            return _sub_cb
+
         # Convert files
         ps.check_cancelled(cancel_token)
         ps.emit_progress_stage(progress_callback, "Converting formats...")
@@ -152,10 +166,11 @@ def run_media_pipeline(
         # Using a unified executor logic
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
-            for record in supported_records:
+            for i, record in enumerate(supported_records):
+                sub_cb = _make_sub_cb(record, total_conversions, i)
                 future = executor.submit(
                     converter.convert_file, record, config, work_dir=work_dir, dry_run=dry_run,
-                    cancel_token=cancel_token
+                    cancel_token=cancel_token, sub_progress=sub_cb
                 )
                 futures[future] = record
 
@@ -215,10 +230,12 @@ def run_media_pipeline(
 
         total_qc = len(converted_records)
         with ThreadPoolExecutor(max_workers=qc_workers) as executor:
-            futures = {
-                executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions): record
-                for record in converted_records
-            }
+            futures = {}
+            for i, record in enumerate(converted_records):
+                sub_cb = _make_sub_cb(record, total_qc, i)
+                future = executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions, sub_progress=sub_cb)
+                futures[future] = record
+
             completed = 0
             progress_iter = ps.progress(
                 as_completed(futures),
@@ -385,10 +402,6 @@ def run_media_pipeline(
             except Exception:
                 logger.exception("Moving failed for %s", converted_path)
             
-            # Progress reporting for moves
-            # (Adding progress callback logic here would be verbose, 
-            # keeping it minimal per requirements)
-            
         if json_emitter is None:
             print("Done")
 
@@ -443,9 +456,6 @@ def run_media_pipeline(
         # Emit summary as final event to callback and JSON mode
         summary_event = {"event": "summary", "report": report_data}
         if progress_callback:
-            # Need to decide how to pass complex dict to callback.
-            # Currently callback expects a string.
-            # Let's add a new token for summary.
             import json
             progress_callback(f"__SUMMARY__:{json.dumps(report_data)}")
         _j("emit_summary", report_data)

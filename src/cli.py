@@ -10,6 +10,7 @@ from typing import Any
 
 from pipeline_shared import JsonEmitter
 from service import MediaPipelineService
+from version import __version__
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -42,8 +43,13 @@ def _build_base_parser() -> argparse.ArgumentParser:
     """Build base argument parser for all commands."""
     parser = argparse.ArgumentParser(
         prog="ClipSorter",
-        description="Media sorting pipeline with separate photo, video, and audio processing."
+        description=(
+            "Non-destructive media sorting pipeline. Creates organized copies of your "
+            "photos, videos, and audio in a sibling folder, isolating defective files "
+            "without modifying original data."
+        )
     )
+    parser.add_argument("--version", action="version", version=f"ClipSorter {__version__}")
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     

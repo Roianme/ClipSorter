@@ -5,10 +5,16 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Callable
+import urllib.request
+import json
+import time
+from packaging import version
 
 from src.service import MediaPipelineService
 from src.gui_utils import ToolTip, SettingsManager
+from src.welcome_view import WelcomeView
+from src.version import __version__
 
 # Try loading optional dependencies
 try:
@@ -27,21 +33,23 @@ MODE_OPTIONS = [
 ]
 
 SETTINGS_FILE = Path.home() / ".clipsorter" / "gui_settings.json"
+GITHUB_REPO = "yourusername/clipsorter" # TODO: Update with real repo
 
 class ClipSorterApp:
     def __init__(self) -> None:
         self.root = BaseTk()
-        self.root.title("ClipSorter GUI")
+        self.root.title(f"ClipSorter v{__version__}")
         
         self.settings = SettingsManager(SETTINGS_FILE)
-        gui_state = self.settings.load()
+        self.gui_state = self.settings.load()
         
-        geometry = gui_state.get("geometry", "600x450")
+        geometry = self.gui_state.get("geometry", "600x450")
         self.root.geometry(geometry)
+        self.root.minsize(550, 450)
 
         self.folder_path: Optional[Path] = None
-        self.mode_var = tk.StringVar(value=gui_state.get("mode", "all"))
-        self.dry_run_var = tk.BooleanVar(value=gui_state.get("dry_run", False))
+        self.mode_var = tk.StringVar(value=self.gui_state.get("mode", "all"))
+        self.dry_run_var = tk.BooleanVar(value=self.gui_state.get("dry_run", False))
         
         self.status_var = tk.StringVar(value="Select a folder to begin.")
         self.progress_var = tk.DoubleVar(value=0)
@@ -49,15 +57,78 @@ class ClipSorterApp:
         self.service: Optional[MediaPipelineService] = None
         self.worker_thread: Optional[threading.Thread] = None
 
+        self.main_container = ttk.Frame(self.root)
+        self.main_container.pack(fill="both", expand=True)
+
         self._create_widgets()
+        self._create_menu()
         
         # Bind keyboard shortcuts
         self.root.bind("<Control-Return>", lambda e: self._start_pipeline(dry_run=False))
         self.root.bind("<Shift-Return>", lambda e: self._start_pipeline(dry_run=True))
         self.root.bind("<Escape>", lambda e: self._cancel_pipeline())
 
+        # First launch welcome and auto-update check
+        if self.gui_state.get("first_launch", True):
+            self.show_welcome()
+        
+        self._schedule_update_check()
+
+    def _create_menu(self) -> None:
+        menubar = tk.Menu(self.root)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="Getting Started", command=self.show_welcome)
+        help_menu.add_command(label="Check for Updates", command=lambda: self.check_for_updates(manual=True))
+        menubar.add_cascade(label="Help", menu=help_menu)
+        self.root.config(menu=menubar)
+
+    def show_welcome(self) -> None:
+        # Clear main container and show welcome view
+        for child in self.main_container.winfo_children():
+            child.pack_forget()
+        
+        WelcomeView(self.main_container, self._close_welcome).pack(fill="both", expand=True)
+
+    def _close_welcome(self, dont_show: bool) -> None:
+        self.gui_state["first_launch"] = not dont_show
+        self.settings.save(self.gui_state)
+        # Restore main widgets
+        for child in self.main_container.winfo_children():
+            child.pack_forget()
+        self._create_widgets()
+
+    def _schedule_update_check(self) -> None:
+        last_check = self.gui_state.get("last_update_check", 0)
+        if time.time() - last_check > 86400: # 24 hours
+            threading.Thread(target=self.check_for_updates, args=(False,), daemon=True).start()
+
+    def check_for_updates(self, manual: bool = False) -> None:
+        if manual:
+            self.status_var.set("Checking for updates...")
+        
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                latest_version = data["tag_name"].lstrip('v')
+                
+                if version.parse(latest_version) > version.parse(__version__):
+                    messagebox.showinfo("Update Available", f"A new version of ClipSorter is available: {latest_version} (you have {__version__}).")
+                elif manual:
+                    messagebox.showinfo("Update Check", "You are up-to-date!")
+                    
+            self.gui_state["last_update_check"] = time.time()
+            self.settings.save(self.gui_state)
+            
+        except Exception as e:
+            if manual:
+                messagebox.showerror("Update Error", f"Could not check for updates: {e}")
+        finally:
+            if manual:
+                self.status_var.set("Ready")
+
     def _create_widgets(self) -> None:
-        frame = ttk.Frame(self.root, padding=16)
+        frame = ttk.Frame(self.main_container, padding=16)
         frame.pack(fill="both", expand=True)
 
         # Folder Selection
@@ -114,8 +185,8 @@ class ClipSorterApp:
         self.open_button.pack(side="left", padx=5)
 
         # Progress
-        self.status_label = ttk.Label(frame, textvariable=self.status_var)
-        self.status_label.pack(anchor="w", pady=(10, 0))
+        self.status_label = ttk.Label(frame, textvariable=self.status_var, justify="center")
+        self.status_label.pack(anchor="center", pady=(10, 0))
         self.progress_bar = ttk.Progressbar(frame, variable=self.progress_var, maximum=1)
         self.progress_bar.pack(fill="x", pady=5)
 
@@ -193,9 +264,20 @@ class ClipSorterApp:
         
         if event_type == "stage":
             self.status_var.set(event["name"])
+            self.progress_var.set(0) # Reset progress for new stage
         elif event_type == "progress":
             self.progress_bar.config(maximum=event["total"])
             self.progress_var.set(event["current"])
+        elif event_type == "sub_progress":
+            # Real-time sub-progress for a single file (0.0 to 1.0)
+            percent = event.get("percent", 0.0)
+            self.progress_bar.config(maximum=1.0)
+            self.progress_var.set(percent)
+            
+            # Update status with percentage
+            current_stage = self.status_var.get().split("(")[0].strip()
+            filename = event.get("filename", "")
+            self.status_var.set(f"{current_stage} ({percent*100:.1f}%) : {filename}")
         elif event_type == "error":
             self._log(f"Error [{event.get('code')}]: {event['message']}")
         elif event_type == "summary":
@@ -232,11 +314,12 @@ class ClipSorterApp:
 
     def _on_close(self) -> None:
         # Save settings
-        self.settings.save({
+        self.gui_state.update({
             "geometry": self.root.winfo_geometry(),
             "mode": self.mode_var.get(),
             "dry_run": self.dry_run_var.get()
         })
+        self.settings.save(self.gui_state)
         
         if self.worker_thread and self.worker_thread.is_alive():
             if self.service:
