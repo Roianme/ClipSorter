@@ -33,7 +33,7 @@ MODE_OPTIONS = [
 ]
 
 SETTINGS_FILE = Path.home() / ".clipsorter" / "gui_settings.json"
-GITHUB_REPO = "kbkendo/pili" # Actual repo for update checking
+GITHUB_REPO = "Roianme/pili" # Correct repo for update checking
 
 class ClipSorterApp:
     def __init__(self) -> None:
