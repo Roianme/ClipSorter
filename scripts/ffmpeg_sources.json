@@ -1,0 +1,15 @@
+{
+  "linux_x64": {
+    "build_script": "scripts/build_minimal_ffmpeg.sh",
+    "expected_size_mb": 20
+  },
+  "windows_x64": {
+    "source": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-05-04-12-07/ffmpeg-n6.1-latest-win64-gpl-shared-6.1.zip",
+    "sha256": "FILL_IN_AFTER_DOWNLOAD",
+    "expected_size_mb": 35
+  },
+  "macos_arm64": {
+    "build_script": "scripts/build_minimal_ffmpeg.sh",
+    "expected_size_mb": 18
+  }
+}
