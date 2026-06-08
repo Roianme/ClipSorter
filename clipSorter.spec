@@ -2,24 +2,32 @@
 
 block_cipher = None
 
-# Paths to external dependencies
-ffmpeg_path = r'C:\Users\Bogie\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe'
-ffprobe_path = r'C:\Users\Bogie\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffprobe.exe'
-yolo_model = 'yolov8n.pt'
+# Paths to external dependencies (not directly used in Analysis, but serves as reference)
+# These will be dynamically included based on BUNDLE_FFMPEG flag
 
 # Common data and binaries to bundle
+import os
+import sys
+
+yolo_model = 'yolov8n.pt'
+_bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "1") == "1"
+_bin_ext = ".exe" if sys.platform == "win32" else ""
+
 common_datas = [
     (yolo_model, '.'),
 ]
-common_binaries = [
-    (ffmpeg_path, '.'),
-    (ffprobe_path, '.'),
-]
+
+common_binaries = []
+if _bundle_ffmpeg:
+    common_binaries = [
+        (f'scripts/dist/bin/ffmpeg{_bin_ext}', '.'),
+        (f'scripts/dist/bin/ffprobe{_bin_ext}', '.'),
+    ]
 
 # GUI Application
 a_gui = Analysis(
     ['app.py'], # Note: app.py is in root
-    pathex=[],
+    pathex=['F:\pili', 'F:\pili\src'],
     binaries=common_binaries,
     datas=common_datas,
     hiddenimports=['tkinterdnd2'],
@@ -58,7 +66,7 @@ exe_gui = EXE(
 # CLI Tool
 a_cli = Analysis(
     ['sort.py'], # Note: sort.py is in root, which calls cli.main()
-    pathex=[],
+    pathex=['F:\pili', 'F:\pili\src'],
     binaries=common_binaries,
     datas=common_datas,
     hiddenimports=[],
