@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 # Import binary_resolver
-from binary_resolver import resolve_binary
+from src.binary_resolver import resolve_binary # Consistent import
 
 logger = logging.getLogger(__name__)
 

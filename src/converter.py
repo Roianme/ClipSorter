@@ -14,9 +14,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeo
 import threading
 
 import numpy as np
-from scanner import FileRecord
-import pipeline_shared as ps
-from binary_resolver import resolve_binary # Import binary_resolver
+from src.scanner import FileRecord
+from src import pipeline_shared as ps
+from src.binary_resolver import resolve_binary 
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ def _run_ffmpeg_with_progress(
 ) -> subprocess.CompletedProcess[str]:
     """Run FFmpeg and parse its output for progress (time=...)."""
     # Import locally to avoid potential circular dependency issues
-    from src.qc_video import _run_ffprobe_duration_seconds
+    from src.qc_video import _run_ffprobe_duration_seconds # Corrected import for qc_video
     duration = _run_ffprobe_duration_seconds(source)
     
     if not duration:

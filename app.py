@@ -15,7 +15,7 @@ from src.service import MediaPipelineService
 from src.gui_utils import ToolTip, SettingsManager
 from src.welcome_view import WelcomeView
 from src.version import __version__
-from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
+from binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
 
 
 # Try loading optional dependencies
@@ -143,11 +143,8 @@ class ClipSorterApp:
         dialog.grab_set()
 
         message = (
-            f"ClipSorter needs FFmpeg to process videos and audio.
-"
-            f"The following essential tools were not found: {', '.join(missing)}.
-
-"
+            f"ClipSorter needs FFmpeg to process videos and audio."
+            f"The following essential tools were not found: {', '.join(missing)}."
             f"Please install FFmpeg or point to its location."
         )
         ttk.Label(dialog, text=message, wraplength=400, justify="left").pack(padx=20, pady=20)
@@ -209,8 +206,7 @@ class ClipSorterApp:
             self.folder_entry.drop_target_register(DND_FILES)
             self.folder_entry.dnd_bind('<<Drop>>', self._on_dnd_drop)
         
-        ToolTip(self.folder_entry, "The folder containing your media files to organize.
-Drag and drop a folder here.")
+        ToolTip(self.folder_entry, "The folder containing your media files to organize. Drag and drop a folder here.")
 
         # Mode & Options
         ttk.Label(frame, text="Mode:").pack(anchor="w")
@@ -356,8 +352,7 @@ Drag and drop a folder here.")
 
     def _log(self, message: str) -> None:
         self.log_text.config(state="normal")
-        self.log_text.insert(tk.END, message + "
-")
+        self.log_text.insert(tk.END, message + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
 

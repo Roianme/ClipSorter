@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, Optional
 
 import cv2
 import imagehash
@@ -13,8 +13,8 @@ import librosa
 import numpy as np
 from PIL import Image
 
-from qc_video import _read_sampled_frames, _run_ffprobe_duration_seconds
-import pipeline_shared as ps
+from src.qc_video import _read_sampled_frames, _run_ffprobe_duration_seconds
+from src import pipeline_shared as ps
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +279,7 @@ def find_duplicates(
     Returns duplicate pairs only; never deletes files. Downstream classifier
     should send both files to review regardless of QC scores.
     """
-    from config_loader import DEFAULT_CONFIG
+    from src.config_loader import DEFAULT_CONFIG
 
     cfg = config if config is not None else DEFAULT_CONFIG
     photos = list(photo_paths or [])

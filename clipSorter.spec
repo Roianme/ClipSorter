@@ -2,35 +2,83 @@
 
 block_cipher = None
 
-# Paths to external dependencies (not directly used in Analysis, but serves as reference)
-# These will be dynamically included based on BUNDLE_FFMPEG flag
-
-# Common data and binaries to bundle
+# --- Dynamic Path Resolution ---
 import os
 import sys
 
-yolo_model = 'yolov8n.pt'
-_bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "1") == "1"
+# Get the directory where the .spec file is located
+spec_root = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+# --- External Dependencies and Data ---
+yolo_model_path = os.path.join(spec_root, 'yolov8n.pt')
+if not os.path.exists(yolo_model_path):
+    # This should be handled gracefully, perhaps by downloading or raising a specific error
+    # For now, we'll raise an error to prevent silent failures
+    raise FileNotFoundError(f"YOLO model not found at: {yolo_model_path}")
+
+_bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "0") == "1" # "1" to bundle, "0" to expect on PATH
+
 _bin_ext = ".exe" if sys.platform == "win32" else ""
 
 common_datas = [
-    (yolo_model, '.'),
+    (yolo_model_path, '.'),
+    (os.path.join(spec_root, 'src'), 'src'),
 ]
 
 common_binaries = []
 if _bundle_ffmpeg:
-    common_binaries = [
-        (f'scripts/dist/bin/ffmpeg{_bin_ext}', '.'),
-        (f'scripts/dist/bin/ffprobe{_bin_ext}', '.'),
-    ]
+    ffmpeg_exe_path = os.path.join(spec_root, 'scripts', 'dist', 'bin', f'ffmpeg{_bin_ext}')
+    ffprobe_exe_path = os.path.join(spec_root, 'scripts', 'dist', 'bin', f'ffprobe{_bin_ext}')
+    
+    # We won't raise error here for BUNDLE_FFMPEG=0
+    if os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
+        common_binaries = [
+            (ffmpeg_exe_path, '.'),
+            (ffprobe_exe_path, '.'),
+        ]
 
-# GUI Application
+# --- Hidden Imports ---
+# Explicitly include commonly missed or dynamically imported modules
+hidden_imports_common = [
+    'tkinterdnd2', 
+    'src.binary_resolver',
+    'src.classifier', 
+    'src.config_loader',
+    'src.converter',
+    'src.duplicate',
+    'src.gui_utils',
+    'src.mover',
+    'src.pipeline',
+    'src.pipeline_shared',
+    'src.qc_audio',
+    'src.qc_photo',
+    'src.qc_video',
+    'src.reporter',
+    'src.scanner',
+    'src.service',
+    'src.sort_audio',
+    'src.sort_photo',
+    'src.sort_video',
+    'src.version',
+    'src.welcome_view',
+    'torch',
+    'ultralytics',
+    'cv2',
+    'numpy',
+    'numba',
+    'scipy',
+    'rawpy',
+    'PIL',
+    'magic',
+]
+
+# --- GUI Application ---
 a_gui = Analysis(
-    ['app.py'], # Note: app.py is in root
-    pathex=['F:\pili', 'F:\pili\src'],
+    ['app.py'], 
+    pathex=[spec_root], # Only root
     binaries=common_binaries,
     datas=common_datas,
-    hiddenimports=['tkinterdnd2'],
+    hiddenimports=hidden_imports_common,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -55,7 +103,7 @@ exe_gui = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False, # Windowed mode
+    console=True, # Windowed mode with console for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -63,13 +111,13 @@ exe_gui = EXE(
     entitlements_file=None,
 )
 
-# CLI Tool
+# --- CLI Tool ---
 a_cli = Analysis(
-    ['sort.py'], # Note: sort.py is in root, which calls cli.main()
-    pathex=['F:\pili', 'F:\pili\src'],
+    ['sort.py'], 
+    pathex=[spec_root], # Only root
     binaries=common_binaries,
     datas=common_datas,
-    hiddenimports=[],
+    hiddenimports=hidden_imports_common,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
