@@ -8,9 +8,9 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from pipeline_shared import JsonEmitter
-from service import MediaPipelineService
-from version import __version__
+from src.pipeline_shared import JsonEmitter
+from src.service import MediaPipelineService
+from src.version import __version__
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:

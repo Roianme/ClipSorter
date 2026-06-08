@@ -51,11 +51,9 @@ def resolve_binary(name: str) -> str:
         return system_path
 
     raise FileNotFoundError(
-        f"'{name}' was not found on this system.
-"
-        f"  Option 1: Install FFmpeg from https://ffmpeg.org/download.html
-"
-        f"  Option 2: Set the environment variable {env_key} to the full path of {name}."
+        f"""'{name}' was not found on this system.
+  Option 1: Install FFmpeg from https://ffmpeg.org/download.html
+  Option 2: Set the environment variable {env_key} to the full path of {name}."""
     )
 
 

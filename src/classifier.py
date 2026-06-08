@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from duplicate import DuplicatePair, format_duplicate_flag
-from qc_video import QCLevel, QCResult
+from src.duplicate import DuplicatePair, format_duplicate_flag
+from src.qc_video import QCLevel, QCResult
 
 Bucket = Literal["clean", "review", "rejected", "burst"]
 

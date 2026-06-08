@@ -1,4 +1,4 @@
-# VecFS memory (see .cursor/mcp.json â†’ VECFS_FILE)
+# VecFS memory (see .cursor/mcp.json Ã¢â€ â€™ VECFS_FILE)
 .vecfs/
 *.jsonl
 *.json1
@@ -9,7 +9,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
+# build/ # Temporarily commented out to access warn-clipSorter.txt
 dist/
 *.egg-info/
 .eggs/
@@ -27,7 +27,7 @@ Thumbs.db
 .vscode/
 .cursor/
 
-# FFmpeg build artifacts — never commit binaries
+# FFmpeg build artifacts Ã¢â€”â€š never commit binaries
 ffmpeg_src/
 scripts/dist/
 *.exe
