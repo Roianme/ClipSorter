@@ -16,6 +16,7 @@ import threading
 import numpy as np
 from scanner import FileRecord
 import pipeline_shared as ps
+from binary_resolver import resolve_binary # Import binary_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class ConvertedFileRecord(FileRecord, total=False):
 
 
 def get_work_dir() -> Path:
-    """Cross-platform temp work directory (e.g. %TEMP%\\clipsorter_work on Windows)."""
+    """Cross-platform temp work directory (e.g. %TEMP%\clipsorter_work on Windows)."""
     work_dir = Path(tempfile.gettempdir()) / WORK_DIR_NAME
     work_dir.mkdir(parents=True, exist_ok=True)
     return work_dir
@@ -89,11 +90,19 @@ def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    try:
+        resolve_binary("ffmpeg")
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def _ffprobe_available() -> bool:
-    return shutil.which("ffprobe") is not None
+    try:
+        resolve_binary("ffprobe")
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def _video_codec_name(source: Path) -> str | None:
@@ -101,7 +110,7 @@ def _video_codec_name(source: Path) -> str | None:
         return None
 
     cmd = [
-        "ffprobe",
+        resolve_binary("ffprobe"),
         "-v",
         "error",
         "-select_streams",
@@ -135,7 +144,7 @@ def _video_resolution(source: Path) -> tuple[int, int] | None:
         return None
 
     cmd = [
-        "ffprobe",
+        resolve_binary("ffprobe"),
         "-v",
         "error",
         "-select_streams",
@@ -178,6 +187,13 @@ def _convert_video(
     res = _video_resolution(source)
     standardize = config.get("video_standardize_1080p", False)
 
+    if standardize and res is None:
+        logger.warning(
+            "Could not read resolution for %s; "
+            "skipping rescale even though standardize=True",
+            source.name,
+        )
+
     logger.info("Converting video %s: codec=%s, resolution=%s, standardize=%s", 
                 source.name, codec, res, standardize)
 
@@ -191,16 +207,18 @@ def _convert_video(
     # If already H.264 and no standardization/rescale needed, just copy
     if _is_h264(codec) and not needs_rescale:
         logger.info("Video %s is already H.264 and 1080p-compliant; copying.", source.name)
-        cmd = ["ffmpeg", "-y", "-i", str(source), "-c", "copy", str(dest)]
+        cmd = [resolve_binary("ffmpeg"), "-y", "-i", str(source), "-c", "copy", str(dest)]
         result = _run_command(cmd)
     else:
         logger.info("Transcoding video %s (codec=%s, rescale=%s)", source.name, codec, needs_rescale)
         # Transcode (needed for format change or resizing)
         cmd = [
-            "ffmpeg",
+            resolve_binary("ffmpeg"),
             "-y",
             "-i",
             str(source),
+            "-map", "0:v:0",
+            "-map", "0:a?",
             "-c:v",
             str(config["video_output_codec"]),
             "-crf",
@@ -282,7 +300,7 @@ def _convert_audio(source: Path, dest: Path, config: dict[str, Any]) -> bool:
         return False
 
     cmd = [
-        "ffmpeg",
+        resolve_binary("ffmpeg"),
         "-y",
         "-i",
         str(source),

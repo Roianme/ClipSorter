@@ -13,6 +13,9 @@ from typing import Any, Literal, TypedDict, Callable, Optional
 import cv2
 import numpy as np
 
+# Import binary_resolver
+from binary_resolver import resolve_binary
+
 logger = logging.getLogger(__name__)
 
 QCLevel = Literal["pass", "rejected"]
@@ -33,8 +36,14 @@ class QCResult(TypedDict, total=False):
 
 
 def _run_ffprobe_duration_seconds(path: Path) -> float | None:
+    try:
+        ffprobe_path = resolve_binary("ffprobe")
+    except FileNotFoundError:
+        logger.warning("ffprobe not found; cannot read video duration for %s", path)
+        return None
+
     cmd = [
-        "ffprobe",
+        ffprobe_path,
         "-v",
         "error",
         "-show_entries",
