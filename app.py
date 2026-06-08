@@ -15,6 +15,8 @@ from src.service import MediaPipelineService
 from src.gui_utils import ToolTip, SettingsManager
 from src.welcome_view import WelcomeView
 from src.version import __version__
+from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
+
 
 # Try loading optional dependencies
 try:
@@ -47,6 +49,13 @@ class ClipSorterApp:
         self.root.geometry(geometry)
         self.root.minsize(550, 450)
 
+        # Check for FFmpeg/FFprobe binaries on startup
+        missing_binaries = check_all_dependencies()
+        if missing_binaries:
+            self._show_missing_ffmpeg_dialog(missing_binaries)
+            self.root.destroy() # Exit app if essential binaries are missing
+            return
+            
         self.folder_path: Optional[Path] = None
         self.mode_var = tk.StringVar(value=self.gui_state.get("mode", "all"))
         self.dry_run_var = tk.BooleanVar(value=self.gui_state.get("dry_run", False))
@@ -127,6 +136,59 @@ class ClipSorterApp:
             if manual:
                 self.status_var.set("Ready")
 
+    def _show_missing_ffmpeg_dialog(self, missing: list[str]) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Missing FFmpeg/FFprobe")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        message = (
+            f"ClipSorter needs FFmpeg to process videos and audio.
+"
+            f"The following essential tools were not found: {', '.join(missing)}.
+
+"
+            f"Please install FFmpeg or point to its location."
+        )
+        ttk.Label(dialog, text=message, wraplength=400, justify="left").pack(padx=20, pady=20)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+
+        # Download button
+        ttk.Button(btn_frame, text="Download FFmpeg", command=lambda: self._open_url("https://ffmpeg.org/download.html")).pack(side="left", padx=5)
+
+        # Browse button
+        ttk.Button(btn_frame, text="Browse for Folder...", command=lambda: self._browse_for_ffmpeg(dialog, missing)).pack(side="left", padx=5)
+
+        self.root.wait_window(dialog) # Wait for dialog to close
+
+    def _open_url(self, url: str) -> None:
+        import webbrowser
+        webbrowser.open_new(url)
+
+    def _browse_for_ffmpeg(self, dialog: tk.Toplevel, missing_binaries: list[str]) -> None:
+        folder = filedialog.askdirectory(title="Locate FFmpeg/FFprobe Folder")
+        if folder:
+            path_to_check = Path(folder)
+            
+            found_all = True
+            for binary_name in missing_binaries:
+                binary_path = path_to_check / (binary_name + (".exe" if os.name == "nt" else ""))
+                if not binary_path.exists():
+                    found_all = False
+                    break
+            
+            if found_all:
+                # Store paths in environment variables for binary_resolver
+                os.environ[FFMPEG_ENV_KEY] = str(path_to_check / ("ffmpeg" + (".exe" if os.name == "nt" else "")))
+                os.environ[FFPROBE_ENV_KEY] = str(path_to_check / ("ffprobe" + (".exe" if os.name == "nt" else "")))
+                messagebox.showinfo("FFmpeg Found", "FFmpeg and FFprobe found and configured. Please restart ClipSorter.")
+                dialog.destroy()
+            else:
+                messagebox.showwarning("Not Found", f"Could not find all required binaries ({', '.join(missing_binaries)}) in the selected folder. Please try again.")
+
+
     def _create_widgets(self) -> None:
         frame = ttk.Frame(self.main_container, padding=16)
         frame.pack(fill="both", expand=True)
@@ -147,7 +209,8 @@ class ClipSorterApp:
             self.folder_entry.drop_target_register(DND_FILES)
             self.folder_entry.dnd_bind('<<Drop>>', self._on_dnd_drop)
         
-        ToolTip(self.folder_entry, "The folder containing your media files to organize.\nDrag and drop a folder here.")
+        ToolTip(self.folder_entry, "The folder containing your media files to organize.
+Drag and drop a folder here.")
 
         # Mode & Options
         ttk.Label(frame, text="Mode:").pack(anchor="w")
@@ -293,7 +356,8 @@ class ClipSorterApp:
 
     def _log(self, message: str) -> None:
         self.log_text.config(state="normal")
-        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.insert(tk.END, message + "
+")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
 
