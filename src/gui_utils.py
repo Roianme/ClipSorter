@@ -1,9 +1,10 @@
-"""GUI utility classes for tooltips and settings management."""
+"""GUI utility classes for tooltips, settings management, and logging."""
 
 import json
+import logging
 import tkinter as tk
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 
 class ToolTip:
@@ -54,3 +55,15 @@ class SettingsManager:
                 json.dump(settings, f)
         except IOError:
             pass
+
+
+class GUILogHandler(logging.Handler):
+    """A logging handler that redirects logs to a GUI callback."""
+    def __init__(self, log_func: Callable[[str], None], root: tk.Tk) -> None:
+        super().__init__()
+        self.log_func = log_func
+        self.root = root
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = self.format(record)
+        self.root.after(0, lambda: self.log_func(msg))

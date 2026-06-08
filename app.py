@@ -9,13 +9,14 @@ from typing import Any, Optional, Callable
 import urllib.request
 import json
 import time
+import logging
 from packaging import version
 
 from src.service import MediaPipelineService
-from src.gui_utils import ToolTip, SettingsManager
+from src.gui_utils import ToolTip, SettingsManager, GUILogHandler
 from src.welcome_view import WelcomeView
 from src.version import __version__
-from binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
+from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
 
 
 # Try loading optional dependencies
@@ -71,6 +72,11 @@ class ClipSorterApp:
 
         self._create_widgets()
         self._create_menu()
+        
+        # Setup GUI logging
+        self.gui_handler = GUILogHandler(self._log, self.root)
+        self.gui_handler.setFormatter(logging.Formatter('%(levelname)s %(name)s: %(message)s'))
+        logging.getLogger().addHandler(self.gui_handler)
         
         # Bind keyboard shortcuts
         self.root.bind("<Control-Return>", lambda e: self._start_pipeline(dry_run=False))
@@ -143,9 +149,10 @@ class ClipSorterApp:
         dialog.grab_set()
 
         message = (
-            f"ClipSorter needs FFmpeg to process videos and audio."
-            f"The following essential tools were not found: {', '.join(missing)}."
-            f"Please install FFmpeg or point to its location."
+            f"""ClipSorter needs FFmpeg to process videos and audio.
+The following essential tools were not found: {', '.join(missing)}.
+
+Please install FFmpeg or point to its location."""
         )
         ttk.Label(dialog, text=message, wraplength=400, justify="left").pack(padx=20, pady=20)
 
@@ -206,7 +213,8 @@ class ClipSorterApp:
             self.folder_entry.drop_target_register(DND_FILES)
             self.folder_entry.dnd_bind('<<Drop>>', self._on_dnd_drop)
         
-        ToolTip(self.folder_entry, "The folder containing your media files to organize. Drag and drop a folder here.")
+        ToolTip(self.folder_entry, """The folder containing your media files to organize.
+Drag and drop a folder here.""")
 
         # Mode & Options
         ttk.Label(frame, text="Mode:").pack(anchor="w")
