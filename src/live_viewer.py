@@ -1,6 +1,6 @@
 import io
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import logging
 from PIL import Image, ImageTk
 from pathlib import Path
@@ -84,32 +84,41 @@ class LiveViewFrame(tk.Toplevel):
         path = self.image_paths[index]
         try:
             if path not in self.image_cache:
+                # Load and cache
                 original_image = self._load_image(path)
                 display_image = original_image.copy()
+                
                 screen_width = self.winfo_screenwidth()
                 screen_height = self.winfo_screenheight()
+                # Subtract overlay height
                 display_image.thumbnail((screen_width, screen_height - 100))
+                
                 self.image_cache[path] = (original_image, display_image)
             
             _, display_image = self.image_cache[path]
+            
             self.tk_image = ImageTk.PhotoImage(display_image)
             self.label.config(image=self.tk_image)
             self.title(f"Live View - {path.name} ({self.current_index + 1}/{len(self.image_paths)})")
+        
         except Exception as e:
             logger.warning(f"Error loading image {path.name}: {e}. Skipping.")
+            # Skip to next image in direction
             self.current_index = (self.current_index + direction) % len(self.image_paths)
             self.show_image(self.current_index, direction)
 
     def next_image(self):
+        """Show next image, wrapping around."""
         self.current_index = (self.current_index + 1) % len(self.image_paths)
         self.show_image(self.current_index, direction=1)
 
     def previous_image(self):
+        """Show previous image, wrapping around."""
         self.current_index = (self.current_index - 1) % len(self.image_paths)
         self.show_image(self.current_index, direction=-1)
 
     def add_shortcut(self):
-        folder = tk.filedialog.askdirectory(title="Select Shortcut Folder")
+        folder = filedialog.askdirectory(title="Select Shortcut Folder")
         if folder:
             num = len(self.shortcuts) + 1
             if num > 9:
