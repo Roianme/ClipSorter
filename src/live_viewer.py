@@ -82,7 +82,10 @@ class LiveViewFrame(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Right>", lambda e: self.next_image())
         self.bind("<Left>", lambda e: self.previous_image())
+        
+        # Explicit bindings for shortcut keys
         for i in range(1, 10):
+            # Using partial to avoid closure issues if necessary, but lambda with default arg should work
             self.bind(f"{i}", lambda e, idx=i: self.move_to_shortcut(idx))
             self.bind(f"<Control-{i}>", lambda e, idx=i: self.remove_shortcut(idx))
 
@@ -136,10 +139,17 @@ class LiveViewFrame(tk.Toplevel):
     def add_shortcut(self):
         folder = filedialog.askdirectory(title="Select Shortcut Folder")
         if folder:
-            num = len(self.shortcuts) + 1
-            if num > 9:
+            # Find the lowest available index
+            num = None
+            for i in range(1, 10):
+                if i not in self.shortcuts:
+                    num = i
+                    break
+            
+            if num is None:
                 messagebox.showwarning("Max Shortcuts", "Maximum 9 shortcuts allowed.")
                 return
+                
             self.shortcuts[num] = Path(folder)
             
             # Add to shortcut panel
@@ -150,6 +160,8 @@ class LiveViewFrame(tk.Toplevel):
             self.show_feedback(f"Shortcut {num} set to {Path(folder).name}")
 
     def remove_shortcut(self, num: int):
+        # Debugging: check if function is triggered
+        print(f"Attempting to remove shortcut {num}") 
         if num in self.shortcuts:
             del self.shortcuts[num]
             lbl = self.shortcut_labels.pop(num)
