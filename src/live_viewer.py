@@ -4,7 +4,7 @@ from PIL import Image, ImageTk
 from pathlib import Path
 
 class LiveViewFrame(tk.Toplevel):
-    """A non-blocking photo viewer that displays images from a folder."""
+    """A non-blocking photo viewer that displays images from a folder with navigation."""
     def __init__(self, parent: tk.Widget, folder_path: Path):
         super().__init__(parent)
         self.folder_path = folder_path
@@ -26,9 +26,12 @@ class LiveViewFrame(tk.Toplevel):
         self.label.pack(expand=True, fill="both")
         
         # Display the first image
-        self.display_image(self.image_paths[self.current_index])
+        self.show_image(self.current_index)
         
+        # Bindings
         self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Right>", lambda e: self.next_image())
+        self.bind("<Left>", lambda e: self.previous_image())
 
     def _load_image(self, path: Path) -> Image.Image:
         """Reads image into memory and closes file handle immediately."""
@@ -36,11 +39,25 @@ class LiveViewFrame(tk.Toplevel):
             data = f.read()
         return Image.open(io.BytesIO(data))
 
-    def display_image(self, path: Path):
-        """Displays the loaded image, scaled to screen."""
+    def show_image(self, index: int):
+        """Displays image at the given index."""
+        path = self.image_paths[index]
         image = self._load_image(path)
+        
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         image.thumbnail((screen_width, screen_height))
+        
         self.tk_image = ImageTk.PhotoImage(image)
         self.label.config(image=self.tk_image)
+        self.title(f"Live View - {path.name} ({index + 1}/{len(self.image_paths)})")
+
+    def next_image(self):
+        """Show next image, wrapping around."""
+        self.current_index = (self.current_index + 1) % len(self.image_paths)
+        self.show_image(self.current_index)
+
+    def previous_image(self):
+        """Show previous image, wrapping around."""
+        self.current_index = (self.current_index - 1) % len(self.image_paths)
+        self.show_image(self.current_index)
