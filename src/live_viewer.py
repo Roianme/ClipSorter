@@ -18,6 +18,8 @@ class LiveViewFrame(tk.Toplevel):
         
         # Shortcut mapping: {key: Path}
         self.shortcuts: dict[int, Path] = {}
+        # Shortcut label mapping: {key: tk.Label}
+        self.shortcut_labels: dict[int, tk.Label] = {}
         
         self.image_cache = {} # Key: path, Value: (original_pil, display_pil)
         
@@ -82,6 +84,7 @@ class LiveViewFrame(tk.Toplevel):
         self.bind("<Left>", lambda e: self.previous_image())
         for i in range(1, 10):
             self.bind(f"{i}", lambda e, idx=i: self.move_to_shortcut(idx))
+            self.bind(f"<Control-{i}>", lambda e, idx=i: self.remove_shortcut(idx))
 
     def _load_image(self, path: Path) -> Image.Image:
         with open(path, "rb") as f:
@@ -142,8 +145,18 @@ class LiveViewFrame(tk.Toplevel):
             # Add to shortcut panel
             lbl = tk.Label(self.shortcut_frame, text=f"{num}: {Path(folder).name}", bg="#333333", fg="cyan", padx=10)
             lbl.pack(side="left")
+            self.shortcut_labels[num] = lbl
             
             self.show_feedback(f"Shortcut {num} set to {Path(folder).name}")
+
+    def remove_shortcut(self, num: int):
+        if num in self.shortcuts:
+            del self.shortcuts[num]
+            lbl = self.shortcut_labels.pop(num)
+            lbl.destroy()
+            self.show_feedback(f"Shortcut {num} removed.")
+        else:
+            self.show_feedback(f"Shortcut {num} not defined.")
 
     def move_to_shortcut(self, num: int):
         if num not in self.shortcuts:
