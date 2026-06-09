@@ -4,12 +4,14 @@ from PIL import Image, ImageTk
 from pathlib import Path
 
 class LiveViewFrame(tk.Toplevel):
-    """A non-blocking photo viewer that displays images from a folder with navigation."""
+    """A non-blocking photo viewer that displays images from a folder with navigation and caching."""
     def __init__(self, parent: tk.Widget, folder_path: Path):
         super().__init__(parent)
         self.folder_path = folder_path
         self.title(f"Live View - {folder_path.name}")
         self.attributes('-fullscreen', True)
+        
+        self.image_cache = {} # Key: path, Value: (original_pil, display_pil)
         
         # Scan folder for supported images
         self.image_paths = sorted([
@@ -40,15 +42,23 @@ class LiveViewFrame(tk.Toplevel):
         return Image.open(io.BytesIO(data))
 
     def show_image(self, index: int):
-        """Displays image at the given index."""
+        """Displays image at the given index, using cache if available."""
         path = self.image_paths[index]
-        image = self._load_image(path)
         
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        image.thumbnail((screen_width, screen_height))
+        if path not in self.image_cache:
+            # Load and cache
+            original_image = self._load_image(path)
+            display_image = original_image.copy()
+            
+            screen_width = self.winfo_screenwidth()
+            screen_height = self.winfo_screenheight()
+            display_image.thumbnail((screen_width, screen_height))
+            
+            self.image_cache[path] = (original_image, display_image)
         
-        self.tk_image = ImageTk.PhotoImage(image)
+        _, display_image = self.image_cache[path]
+        
+        self.tk_image = ImageTk.PhotoImage(display_image)
         self.label.config(image=self.tk_image)
         self.title(f"Live View - {path.name} ({index + 1}/{len(self.image_paths)})")
 
