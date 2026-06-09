@@ -50,9 +50,19 @@ class LiveViewFrame(tk.Toplevel):
         self.overlay = tk.Frame(self, bg="#333333")
         self.overlay.pack(side="bottom", fill="x")
 
-        # Feedback label
-        self.feedback_label = tk.Label(self.overlay, text="", bg="#333333", fg="white")
-        self.feedback_label.pack(side="top", pady=5)
+        # Status and Feedback panel
+        self.info_panel = tk.Frame(self.overlay, bg="#333333")
+        self.info_panel.pack(side="top", fill="x", pady=5)
+        
+        self.status_label = tk.Label(self.info_panel, text="", bg="#333333", fg="white", font=("Arial", 12))
+        self.status_label.pack(side="left", padx=10)
+        
+        self.feedback_label = tk.Label(self.info_panel, text="", bg="#333333", fg="#ffff00", font=("Arial", 12))
+        self.feedback_label.pack(side="right", padx=10)
+
+        # Shortcut panel
+        self.shortcut_frame = tk.Frame(self.overlay, bg="#333333")
+        self.shortcut_frame.pack(side="top", fill="x", pady=5)
 
         # Buttons
         btn_frame = tk.Frame(self.overlay, bg="#333333")
@@ -91,7 +101,7 @@ class LiveViewFrame(tk.Toplevel):
                 screen_width = self.winfo_screenwidth()
                 screen_height = self.winfo_screenheight()
                 # Subtract overlay height
-                display_image.thumbnail((screen_width, screen_height - 100))
+                display_image.thumbnail((screen_width, screen_height - 150))
                 
                 self.image_cache[path] = (original_image, display_image)
             
@@ -99,7 +109,10 @@ class LiveViewFrame(tk.Toplevel):
             
             self.tk_image = ImageTk.PhotoImage(display_image)
             self.label.config(image=self.tk_image)
-            self.title(f"Live View - {path.name} ({self.current_index + 1}/{len(self.image_paths)})")
+            
+            # Update status
+            self.status_label.config(text=f"Viewing: {path.name} ({self.current_index + 1}/{len(self.image_paths)})")
+            self.title(f"Live View - {path.name}")
         
         except Exception as e:
             logger.warning(f"Error loading image {path.name}: {e}. Skipping.")
@@ -125,7 +138,12 @@ class LiveViewFrame(tk.Toplevel):
                 messagebox.showwarning("Max Shortcuts", "Maximum 9 shortcuts allowed.")
                 return
             self.shortcuts[num] = Path(folder)
-            self.show_feedback(f"Shortcut {num} set to {folder}")
+            
+            # Add to shortcut panel
+            lbl = tk.Label(self.shortcut_frame, text=f"{num}: {Path(folder).name}", bg="#333333", fg="cyan", padx=10)
+            lbl.pack(side="left")
+            
+            self.show_feedback(f"Shortcut {num} set to {Path(folder).name}")
 
     def move_to_shortcut(self, num: int):
         if num not in self.shortcuts:
@@ -137,7 +155,7 @@ class LiveViewFrame(tk.Toplevel):
         
         try:
             manual_move(path, dest)
-            self.show_feedback(f"Moved {path.name} to Shortcut {num} ({dest.name})")
+            self.show_feedback(f"Moved: {path.name} -> {dest.name}")
             # Remove from local list and cache
             del self.image_paths[self.current_index]
             del self.image_cache[path]
