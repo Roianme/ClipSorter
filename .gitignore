@@ -1,4 +1,4 @@
-# VecFS memory (see .cursor/mcp.json Ã¢â€ â€™ VECFS_FILE)
+# VecFS memory
 .vecfs/
 *.jsonl
 *.json1
@@ -9,7 +9,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-# build/ # Temporarily commented out to access warn-clipSorter.txt
+build/
 dist/
 *.egg-info/
 .eggs/
@@ -27,10 +27,19 @@ Thumbs.db
 .vscode/
 .cursor/
 
-# FFmpeg build artifacts Ã¢â€”â€š never commit binaries
+# FFmpeg build artifacts — never commit binaries
 ffmpeg_src/
 scripts/dist/
 *.exe
 ffmpeg
 ffprobe
 pyav_src/build/
+
+# Test/Temporary files
+verify_viewer.py
+test_image.jpg
+test_image_renamed.jpg
+
+# Ignore all markdown except README.md
+*.md
+!README.md
