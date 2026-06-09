@@ -15,6 +15,7 @@ from packaging import version
 from src.service import MediaPipelineService
 from src.gui_utils import ToolTip, SettingsManager, GUILogHandler
 from src.welcome_view import WelcomeView
+from src.live_viewer import LiveViewFrame
 from src.version import __version__
 from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_ENV_KEY, FFPROBE_ENV_KEY
 
@@ -250,6 +251,11 @@ Drag and drop a folder here.""")
         
         self.open_button = ttk.Button(btn_frame, text="Open Output Folder", command=self._open_output, state="disabled")
         self.open_button.pack(side="left", padx=5)
+        
+        # Manual Viewer Button
+        self.manual_button = ttk.Button(btn_frame, text="Manual", command=self._launch_live_view, state="disabled")
+        self.manual_button.pack(side="left", padx=5)
+        ToolTip(self.manual_button, "Open live photo viewer for manual sorting.")
 
         # Progress
         self.status_label = ttk.Label(frame, textvariable=self.status_var, justify="center")
@@ -260,6 +266,10 @@ Drag and drop a folder here.""")
         # Logs
         self.log_text = tk.Text(frame, height=10, state="disabled")
         self.log_text.pack(fill="both", expand=True, pady=10)
+
+    def _launch_live_view(self) -> None:
+        if self.folder_path and self.folder_path.exists():
+            LiveViewFrame(self.root, self.folder_path)
 
     def _validate_folder(self, event: Any = None) -> None:
         path_str = self.folder_entry.get()
@@ -272,10 +282,12 @@ Drag and drop a folder here.""")
             if not self.worker_thread or not self.worker_thread.is_alive():
                 self.run_button.config(state="normal")
                 self.preview_button.config(state="normal")
+                self.manual_button.config(state="normal")
         else:
             self.folder_entry.config(foreground="red")
             self.run_button.config(state="disabled")
             self.preview_button.config(state="disabled")
+            self.manual_button.config(state="disabled")
 
     def _choose_folder(self) -> None:
         folder = filedialog.askdirectory()
