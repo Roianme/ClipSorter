@@ -87,7 +87,8 @@ class LiveViewFrame(tk.Toplevel):
         for i in range(1, 10):
             # Using partial to avoid closure issues if necessary, but lambda with default arg should work
             self.bind(f"{i}", lambda e, idx=i: self.move_to_shortcut(idx))
-            self.bind(f"<Control-{i}>", lambda e, idx=i: self.remove_shortcut(idx))
+            # Use bind_all for Control key combinations for robust capture
+            self.bind_all(f"<Control-Key-{i}>", lambda e, idx=i: self.remove_shortcut(idx))
 
     def _load_image(self, path: Path) -> Image.Image:
         with open(path, "rb") as f:
