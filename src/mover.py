@@ -208,3 +208,11 @@ def move_file(
     shutil.move(str(source), str(destination))
     logger.info("Moved %s -> %s", source, destination)
     return destination.resolve()
+
+
+def manual_move(source: Path, dest_dir: Path) -> Path:
+    """Move a file to a specific folder, handling collisions."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    destination = _allocate_destination(dest_dir, source.name)
+    shutil.move(str(source), str(destination))
+    return destination
