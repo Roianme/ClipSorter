@@ -1,5 +1,6 @@
 import io
 import tkinter as tk
+from tkinter import ttk
 import logging
 from PIL import Image, ImageTk
 from pathlib import Path
@@ -34,8 +35,21 @@ class LiveViewFrame(tk.Toplevel):
             return
             
         self.current_index = 0
-        self.label = tk.Label(self)
+        
+        # Main container
+        self.main_container = tk.Frame(self, bg="black")
+        self.main_container.pack(expand=True, fill="both")
+        
+        self.label = tk.Label(self.main_container, bg="black")
         self.label.pack(expand=True, fill="both")
+        
+        # Navigation/Exit overlay
+        overlay = tk.Frame(self, bg="#333333")
+        overlay.pack(side="bottom", fill="x")
+
+        ttk.Button(overlay, text="Previous", command=self.previous_image).pack(side="left", padx=10, pady=10)
+        ttk.Button(overlay, text="Next", command=self.next_image).pack(side="left", padx=10, pady=10)
+        ttk.Button(overlay, text="Exit", command=self.destroy).pack(side="right", padx=10, pady=10)
         
         # Display the first image
         self.show_image(self.current_index)
@@ -66,7 +80,8 @@ class LiveViewFrame(tk.Toplevel):
                 
                 screen_width = self.winfo_screenwidth()
                 screen_height = self.winfo_screenheight()
-                display_image.thumbnail((screen_width, screen_height))
+                # Subtract overlay height
+                display_image.thumbnail((screen_width, screen_height - 50))
                 
                 self.image_cache[path] = (original_image, display_image)
             
