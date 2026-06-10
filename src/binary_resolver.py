@@ -9,11 +9,31 @@ Raises FileNotFoundError with a clear, actionable message if not found.
 import shutil
 import sys
 import os
+import platform
 
 FFMPEG_ENV_KEY = "CLIPSORTER_FFMPEG_PATH"
 FFPROBE_ENV_KEY = "CLIPSORTER_FFPROBE_PATH"
 
 _cache: dict[str, str] = {}
+
+
+def get_binary_path(name: str = "ffmpeg") -> str:
+    """Detects platform and returns the absolute path for the binary."""
+    # Determine platform extension
+    system = platform.system()
+    suffix = ".exe" if system == "Windows" else ""
+    binary_name = f"{name}{suffix}"
+
+    # Determine base directory
+    if getattr(sys, "frozen", False):
+        # App is frozen (PyInstaller executable)
+        base_dir = sys._MEIPASS
+    else:
+        # App is running as a script
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Path inside the package/bundle
+    return os.path.join(base_dir, binary_name)
 
 
 def resolve_binary(name: str) -> str:
@@ -29,20 +49,15 @@ def resolve_binary(name: str) -> str:
         _cache[name] = env_path
         return env_path
 
-    # Priority 2: Bundled next to executable (PyInstaller extracts to _MEIPASS)
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    suffix = ".exe" if sys.platform == "win32" else ""
-    # Look for bundled binaries in the same directory as the executable,
-    # or one level up if the script is in 'src' and executable in 'dist'
-    bundled_path = os.path.join(base_dir, name + suffix)
-    if not os.path.isfile(bundled_path) and 'src' in base_dir:
-        # If running from src in dev mode or bundled structure is different
-        bundled_path = os.path.join(os.path.dirname(base_dir), name + suffix)
-
+    # Priority 2: Bundled next to executable
+    bundled_path = get_binary_path(name)
+    # Adjustment if run from within 'src'
+    if not os.path.isfile(bundled_path) and 'src' in bundled_path:
+         bundled_path = os.path.join(os.path.dirname(os.path.dirname(bundled_path)), os.path.basename(bundled_path))
+    
     if os.path.isfile(bundled_path):
         _cache[name] = bundled_path
         return bundled_path
-
 
     # Priority 3: System PATH
     system_path = shutil.which(name)
