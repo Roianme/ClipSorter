@@ -1,0 +1,53 @@
+name: Build macOS App
+
+on:
+  workflow_dispatch:  # manual trigger for testing
+  push:
+    tags:
+      - 'v*'         # run on version tags
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download ffmpeg (macOS static build)
+        run: |
+          mkdir -p scripts/dist/bin
+          # Using a stable, well-known static build source for macOS
+          curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
+          unzip ffmpeg.zip
+          mv ffmpeg scripts/dist/bin/ffmpeg
+          mv ffprobe scripts/dist/bin/ffprobe
+          chmod +x scripts/dist/bin/ffmpeg scripts/dist/bin/ffprobe
+
+      - name: Build with PyInstaller
+        env:
+          BUNDLE_FFMPEG: "1"
+        run: |
+          pyinstaller clipSorter.spec --clean --noconfirm
+          ls -la dist/
+
+      - name: Package artifact
+        run: |
+          cd dist
+          # If it's a .app, zip it for distribution
+          zip -r ../clipSorter-macOS.zip ClipSorter-GUI.app || zip -r ../clipSorter-macOS.zip *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipSorter-macOS
+          path: clipSorter-macOS.zip
