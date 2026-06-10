@@ -24,22 +24,21 @@ elif sys.platform == 'darwin':
 else:
     raise NotImplementedError(f"Unsupported platform: {sys.platform}")
 
-ffmpeg_src = os.path.join(spec_root, 'scripts', 'dist', 'bin', ffmpeg_bin)
-ffprobe_src = os.path.join(spec_root, 'scripts', 'dist', 'bin', ffprobe_bin)
+ffmpeg_src = os.path.join(spec_root, 'binaries', ffmpeg_bin)
+ffprobe_src = os.path.join(spec_root, 'binaries', ffprobe_bin)
 
 common_datas = [
     (yolo_model_path, '.'),
 ]
 
 common_binaries = []
-if _bundle_ffmpeg:
-    if os.path.exists(ffmpeg_src) and os.path.exists(ffprobe_src):
-        common_binaries = [
-            (ffmpeg_src, ffmpeg_bin),
-            (ffprobe_src, ffprobe_bin),
-        ]
-    else:
-        print(f"WARNING: FFmpeg binaries not found at {ffmpeg_src} or {ffprobe_src}. Not bundling.")
+if os.path.exists(ffmpeg_src) and os.path.exists(ffprobe_src):
+    common_binaries = [
+        (ffmpeg_src, ffmpeg_bin),
+        (ffprobe_src, ffprobe_bin),
+    ]
+else:
+    print(f"WARNING: FFmpeg binaries not found at {ffmpeg_src} or {ffprobe_src}. Not bundling.")
 
 # --- Hidden Imports ---
 hidden_imports_common = [
