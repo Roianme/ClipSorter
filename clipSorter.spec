@@ -11,9 +11,6 @@ spec_root = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 # --- External Dependencies and Data ---
 yolo_model_path = os.path.join(spec_root, 'yolov8n.pt')
-# We do not raise error here as testing might not require subject detection
-# if not os.path.exists(yolo_model_path):
-#    raise FileNotFoundError(f"YOLO model not found at: {yolo_model_path}")
 
 _bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "0") == "1"
 
@@ -78,7 +75,7 @@ hidden_imports_common = [
     'magic',
 ]
 
-# --- GUI Application ---
+# --- Analysis ---
 a_gui = Analysis(
     ['app.py'], 
     pathex=[spec_root], 
@@ -95,21 +92,35 @@ a_gui = Analysis(
     noarchive=False,
 )
 pyz_gui = PYZ(a_gui.pure, a_gui.zipped_data, cipher=block_cipher)
-exe_gui = EXE(
+
+# --- Splash Screen (Only for One-File) ---
+splash = Splash(
+    'splash.png',
+    binaries=a_gui.binaries,
+    datas=a_gui.datas,
+    text_pos=(150, 250),
+    text_size=12,
+    minify_script=True,
+    always_on_top=True,
+)
+
+# --- Target 1: One-File GUI (Portable, with Splash) ---
+exe_onefile = EXE(
     pyz_gui,
     a_gui.scripts,
     a_gui.binaries,
     a_gui.zipfiles,
     a_gui.datas,
-    [],
-    name='ClipSorter-GUI',
+    splash,
+    splash.binaries,
+    name='ClipSorter-GUI-Portable',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -117,14 +128,33 @@ exe_gui = EXE(
     entitlements_file=None,
 )
 
-# Mac BUNDLE
-if sys.platform == 'darwin':
-    app = BUNDLE(exe_gui,
-                 name='ClipSorter.app',
-                 icon=None,
-                 bundle_identifier=None)
+# --- Target 2: One-Dir GUI (Installed, Instant Start) ---
+exe_onedir = EXE(
+    pyz_gui,
+    a_gui.scripts,
+    [], # No binaries/datas in the EXE for One-Dir
+    exclude_binaries=True,
+    name='ClipSorter-GUI-App',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+)
 
-# CLI Tool
+coll_gui = COLLECT(
+    exe_onedir,
+    a_gui.binaries,
+    a_gui.zipfiles,
+    a_gui.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ClipSorter-GUI-QuickStart',
+)
+
+# --- Target 3: CLI Tool ---
 a_cli = Analysis(
     ['sort.py'], 
     pathex=[spec_root], 
@@ -162,3 +192,10 @@ exe_cli = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+# Mac BUNDLE
+if sys.platform == 'darwin':
+    app = BUNDLE(coll_gui,
+                 name='ClipSorter.app',
+                 icon=None,
+                 bundle_identifier=None)

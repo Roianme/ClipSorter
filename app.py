@@ -12,6 +12,12 @@ import time
 import logging
 from packaging import version
 
+try:
+    import pyi_splash
+    pyi_splash.close()
+except ImportError:
+    pass
+
 from src.service import MediaPipelineService
 from src.gui_utils import ToolTip, SettingsManager, GUILogHandler
 from src.welcome_view import WelcomeView
