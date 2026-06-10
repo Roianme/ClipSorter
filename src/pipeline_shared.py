@@ -113,7 +113,7 @@ class JsonEmitter:
 
     def _write(self, obj: dict[str, Any]) -> None:
         """Write a single JSON line to the stream."""
-        if self._closed:
+        if self._closed or self._stream is None:
             return
         self._stream.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
         self._stream.flush()
@@ -122,17 +122,25 @@ class JsonEmitter:
 def configure_logging(verbose: bool) -> None:
     """Configure logging for the pipeline."""
     level = logging.DEBUG if verbose else logging.INFO
+    handlers = []
+    if sys.stdout is not None:
+        handlers.append(logging.StreamHandler(sys.stdout))
+        
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        handlers=handlers,
     )
 
 
 def progress(iterable, **kwargs):
-    """Wrapper for tqdm progress bar."""
-    if tqdm is None:
+    """Wrapper for tqdm progress bar. Safe for GUI/frozen environments."""
+    # Disable tqdm if:
+    # 1. It's not installed
+    # 2. sys.stderr is None (windowed EXE)
+    # 3. sys.stderr is not a TTY (prevents popup windows in some environments)
+    if tqdm is None or sys.stderr is None or not getattr(sys.stderr, 'isatty', lambda: False)():
         return iterable
     return tqdm(iterable, **kwargs)
 

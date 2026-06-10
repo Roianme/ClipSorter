@@ -90,7 +90,11 @@ MODE_PRESETS: dict[str, dict[str, Any]] = {
 
 
 def _project_root() -> Path:
-    """Directory containing sort.py (parent of src/)."""
+    """Directory containing sort.py (parent of src/). Handles frozen EXE paths."""
+    if getattr(sys, "frozen", False):
+        # In a frozen EXE, the executable is the entry point.
+        # We want to look for config.json next to the EXE itself.
+        return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
 
