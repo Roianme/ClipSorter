@@ -11,34 +11,40 @@ spec_root = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 # --- External Dependencies and Data ---
 yolo_model_path = os.path.join(spec_root, 'yolov8n.pt')
-if not os.path.exists(yolo_model_path):
-    # This should be handled gracefully, perhaps by downloading or raising a specific error
-    # For now, we'll raise an error to prevent silent failures
-    raise FileNotFoundError(f"YOLO model not found at: {yolo_model_path}")
+# We do not raise error here as testing might not require subject detection
+# if not os.path.exists(yolo_model_path):
+#    raise FileNotFoundError(f"YOLO model not found at: {yolo_model_path}")
 
-_bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "0") == "1" # "1" to bundle, "0" to expect on PATH
+_bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "0") == "1"
 
-_bin_ext = ".exe" if sys.platform == "win32" else ""
+# Determine platform specifics
+if sys.platform == 'win32':
+    ffmpeg_bin = 'ffmpeg.exe'
+    ffprobe_bin = 'ffprobe.exe'
+elif sys.platform == 'darwin':
+    ffmpeg_bin = 'ffmpeg'
+    ffprobe_bin = 'ffprobe'
+else:
+    raise NotImplementedError(f"Unsupported platform: {sys.platform}")
+
+ffmpeg_src = os.path.join(spec_root, 'scripts', 'dist', 'bin', ffmpeg_bin)
+ffprobe_src = os.path.join(spec_root, 'scripts', 'dist', 'bin', ffprobe_bin)
 
 common_datas = [
     (yolo_model_path, '.'),
-    (os.path.join(spec_root, 'src'), 'src'),
 ]
 
 common_binaries = []
 if _bundle_ffmpeg:
-    ffmpeg_exe_path = os.path.join(spec_root, 'scripts', 'dist', 'bin', f'ffmpeg{_bin_ext}')
-    ffprobe_exe_path = os.path.join(spec_root, 'scripts', 'dist', 'bin', f'ffprobe{_bin_ext}')
-    
-    # We won't raise error here for BUNDLE_FFMPEG=0
-    if os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
+    if os.path.exists(ffmpeg_src) and os.path.exists(ffprobe_src):
         common_binaries = [
-            (ffmpeg_exe_path, '.'),
-            (ffprobe_exe_path, '.'),
+            (ffmpeg_src, ffmpeg_bin),
+            (ffprobe_src, ffprobe_bin),
         ]
+    else:
+        print(f"WARNING: FFmpeg binaries not found at {ffmpeg_src} or {ffprobe_src}. Not bundling.")
 
 # --- Hidden Imports ---
-# Explicitly include commonly missed or dynamically imported modules
 hidden_imports_common = [
     'tkinterdnd2', 
     'src.binary_resolver',
@@ -75,7 +81,7 @@ hidden_imports_common = [
 # --- GUI Application ---
 a_gui = Analysis(
     ['app.py'], 
-    pathex=[spec_root], # Only root
+    pathex=[spec_root], 
     binaries=common_binaries,
     datas=common_datas,
     hiddenimports=hidden_imports_common,
@@ -103,7 +109,7 @@ exe_gui = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True, # Windowed mode with console for debugging
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -111,10 +117,17 @@ exe_gui = EXE(
     entitlements_file=None,
 )
 
-# --- CLI Tool ---
+# Mac BUNDLE
+if sys.platform == 'darwin':
+    app = BUNDLE(exe_gui,
+                 name='ClipSorter.app',
+                 icon=None,
+                 bundle_identifier=None)
+
+# CLI Tool
 a_cli = Analysis(
     ['sort.py'], 
-    pathex=[spec_root], # Only root
+    pathex=[spec_root], 
     binaries=common_binaries,
     datas=common_datas,
     hiddenimports=hidden_imports_common,
@@ -142,7 +155,7 @@ exe_cli = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True, # Console mode
+    console=True, 
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
