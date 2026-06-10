@@ -23,19 +23,20 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Download ffmpeg (macOS static build)
+      - name: Download ffmpeg and ffprobe (macOS static build)
         run: |
-          mkdir -p scripts/dist/bin
-          # Using a stable, well-known static build source for macOS
+          mkdir -p binaries
+          # Download ffmpeg
           curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
           unzip ffmpeg.zip
-          mv ffmpeg scripts/dist/bin/ffmpeg
-          mv ffprobe scripts/dist/bin/ffprobe
-          chmod +x scripts/dist/bin/ffmpeg scripts/dist/bin/ffprobe
+          mv ffmpeg binaries/ffmpeg
+          # Download ffprobe
+          curl -L -o ffprobe.zip https://evermeet.cx/ffprobe/getrelease/zip
+          unzip ffprobe.zip
+          mv ffprobe binaries/ffprobe
+          chmod +x binaries/ffmpeg binaries/ffprobe
 
       - name: Build with PyInstaller
-        env:
-          BUNDLE_FFMPEG: "1"
         run: |
           pyinstaller clipSorter.spec --clean --noconfirm
           ls -la dist/
@@ -43,8 +44,8 @@ jobs:
       - name: Package artifact
         run: |
           cd dist
-          # If it's a .app, zip it for distribution
-          zip -r ../clipSorter-macOS.zip ClipSorter-GUI.app || zip -r ../clipSorter-macOS.zip *
+          # The spec file creates ClipSorter.app for macOS
+          zip -r ../clipSorter-macOS.zip ClipSorter.app || zip -r ../clipSorter-macOS.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
