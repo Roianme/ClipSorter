@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+os.environ["CLIPSORTER_GUI_MODE"] = "1"
+
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk

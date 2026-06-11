@@ -16,11 +16,6 @@ SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-try:
-    from tqdm import tqdm
-except ImportError:  # pragma: no cover
-    tqdm = None
-
 import classifier
 import config_loader
 import converter
@@ -134,9 +129,9 @@ def run_media_pipeline(
             prefix = "DRY RUN: " if dry_run else ""
             print(f"{prefix}Output: {output_root}")
             print(ps.summary_text(total_files_found, files_processed, files_skipped))
-            if tqdm is not None:
-                for _ in ps.progress([None], desc="Scanning files", total=1, unit="stage"):
-                    pass
+            
+            for _ in ps.progress([None], desc="Scanning files", total=1, unit="stage"):
+                pass
         else:
             json_emitter.emit_file_done(str(output_root), "output_folder")
 

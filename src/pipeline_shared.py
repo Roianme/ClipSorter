@@ -138,9 +138,13 @@ def progress(iterable, **kwargs):
     """Wrapper for tqdm progress bar. Safe for GUI/frozen environments."""
     # Disable tqdm if:
     # 1. It's not installed
-    # 2. sys.stderr is None (windowed EXE)
-    # 3. sys.stderr is not a TTY (prevents popup windows in some environments)
-    if tqdm is None or sys.stderr is None or not getattr(sys.stderr, 'isatty', lambda: False)():
+    # 2. We are in GUI mode (explicit override)
+    # 3. sys.stderr is None (windowed EXE)
+    # 4. sys.stderr is not a TTY (prevents popup windows in some environments)
+    if (tqdm is None or 
+        os.environ.get("CLIPSORTER_GUI_MODE") == "1" or
+        sys.stderr is None or 
+        not getattr(sys.stderr, 'isatty', lambda: False)()):
         return iterable
     return tqdm(iterable, **kwargs)
 
