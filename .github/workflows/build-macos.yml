@@ -29,13 +29,16 @@ jobs:
           mkdir -p binaries
           # Download ffmpeg
           curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
-          unzip -o ffmpeg.zip
-          mv ffmpeg binaries/ffmpeg
-          # Download ffprobe (Ensure correct URL and extraction)
-          curl -L -o ffprobe.zip https://evermeet.cx/ffprobe/getrelease/zip
-          unzip -o ffprobe.zip
-          mv ffprobe binaries/ffprobe
+          unzip -o ffmpeg.zip -d bin_ffmpeg
+          mv bin_ffmpeg/ffmpeg binaries/ffmpeg
+          
+          # Download ffprobe (Corrected URL)
+          curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
+          unzip -o ffprobe.zip -d bin_ffprobe
+          mv bin_ffprobe/ffprobe binaries/ffprobe
+          
           chmod +x binaries/ffmpeg binaries/ffprobe
+          rm -rf bin_ffmpeg bin_ffprobe ffmpeg.zip ffprobe.zip
 
       - name: Build with PyInstaller
         run: |
