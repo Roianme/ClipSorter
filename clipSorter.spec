@@ -92,18 +92,20 @@ a_gui = Analysis(
 )
 pyz_gui = PYZ(a_gui.pure, a_gui.zipped_data, cipher=block_cipher)
 
-# --- Splash Screen (Only for One-File) ---
-splash = Splash(
-    'splash.png',
-    binaries=a_gui.binaries,
-    datas=a_gui.datas,
-    text_pos=(150, 250),
-    text_size=12,
-    minify_script=True,
-    always_on_top=True,
-)
+# --- Splash Screen (Only for Windows One-File) ---
+splash = None
+if sys.platform == 'win32':
+    splash = Splash(
+        'splash.png',
+        binaries=a_gui.binaries,
+        datas=a_gui.datas,
+        text_pos=(150, 250),
+        text_size=12,
+        minify_script=True,
+        always_on_top=True,
+    )
 
-# --- Target 1: One-File GUI (Portable, with Splash) ---
+# --- Target 1: One-File GUI (Portable, with Splash on Win) ---
 exe_onefile = EXE(
     pyz_gui,
     a_gui.scripts,
@@ -111,7 +113,7 @@ exe_onefile = EXE(
     a_gui.zipfiles,
     a_gui.datas,
     splash,
-    splash.binaries,
+    splash.binaries if splash else [],
     name='ClipSorter-GUI-Portable',
     debug=False,
     bootloader_ignore_signals=False,
