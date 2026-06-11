@@ -127,6 +127,14 @@ exe_onefile = EXE(
     entitlements_file=None,
 )
 
+# Copy config.json next to the portable EXE
+import shutil
+dist_root = os.path.join(spec_root, 'dist')
+if not os.path.exists(dist_root):
+    os.makedirs(dist_root)
+if os.path.exists(os.path.join(spec_root, 'config.json')):
+    shutil.copy2(os.path.join(spec_root, 'config.json'), dist_root)
+
 # --- Target 2: One-Dir GUI (Installed, Instant Start) ---
 exe_onedir = EXE(
     pyz_gui,
@@ -147,6 +155,7 @@ coll_gui = COLLECT(
     a_gui.binaries,
     a_gui.zipfiles,
     a_gui.datas,
+    [('config.json', os.path.join(spec_root, 'config.json'), 'DATA')],
     strip=False,
     upx=True,
     upx_exclude=[],
