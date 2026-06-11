@@ -179,7 +179,7 @@ def run_media_pipeline(
                 dynamic_ncols=True,
                 ncols=100,
                 ascii=True,
-            ) if tqdm is not None else as_completed(futures)
+            )
             
             for future in progress_iter:
                 ps.check_cancelled(cancel_token)
@@ -240,7 +240,7 @@ def run_media_pipeline(
                 dynamic_ncols=True,
                 ncols=100,
                 ascii=True,
-            ) if tqdm is not None else as_completed(futures)
+            )
             
             for future in progress_iter:
                 path, result = future.result()
