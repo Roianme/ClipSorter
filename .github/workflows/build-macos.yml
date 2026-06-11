@@ -21,6 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          brew install libmagic
           pip install -r requirements.txt
           pip install pyinstaller
 

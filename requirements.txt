@@ -10,7 +10,8 @@ numba
 scipy
 rawpy
 pillow
-python-magic-bin
+python-magic-bin; sys_platform == 'win32'
+python-magic; sys_platform != 'win32'
 ImageHash
 pi_heif
 librosa
