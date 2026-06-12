@@ -30,5 +30,6 @@ python app.py
 
 ## Documentation
 
-- [Usage Guide](USAGE.md) - Detailed instructions and expected outputs.
+- [User Installation Guide](USER_GUIDE.md) - Beginner-friendly guide for downloading and running the app.
+- [Usage Guide](USAGE.md) - Detailed technical instructions and expected outputs.
 - [Optimization Guide](OPTIMIZATION_GUIDE.md) - Tips for large datasets.
