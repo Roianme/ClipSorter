@@ -14,17 +14,30 @@ class WelcomeView(ttk.Frame):
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
 
-        # Title
+        # Title with BETA badge
+        header_frame = ttk.Frame(self)
+        header_frame.grid(row=0, column=0, pady=(16, 2))
+        
         ttk.Label(
-            self,
+            header_frame,
             text=f"ClipSorter v{__version__}",
             font=("Arial", 16, "bold"),
-            anchor="center",
-        ).grid(row=0, column=0, pady=(16, 2), sticky="ew")
+        ).pack(side="left")
+        
+        beta_label = tk.Label(
+            header_frame,
+            text="BETA",
+            font=("Arial", 9, "bold"),
+            bg="#f39c12",
+            fg="white",
+            padx=4,
+            pady=1,
+        )
+        beta_label.pack(side="left", padx=10)
 
         ttk.Label(
             self,
-            text="Organize your media files automatically — non-destructively.",
+            text="Professional Media Quality Control & Smart Organization",
             font=("Arial", 10),
             foreground="gray",
             anchor="center",
@@ -34,69 +47,81 @@ class WelcomeView(ttk.Frame):
             row=2, column=0, sticky="ew", padx=20, pady=(0, 12)
         )
 
-        # Scrollable content area
+        # Content Container
         container = ttk.Frame(self)
-        container.grid(row=3, column=0, sticky="nsew", padx=20)
+        container.grid(row=3, column=0, sticky="nsew", padx=30)
         container.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
 
-        sections = [
-            (
-                "How it works",
-                [
-                    "ClipSorter copies your files into a new sibling folder — your originals are never touched.",
-                    "Preparation  →  converts media to standard formats (JPEG, MP4, MP3).",
-                    "Photos  →  detects duplicates, blurry shots, and burst groups.",
-                    "Videos  →  checks duration and steadiness; isolates defective clips.",
-                    "Audio  →  validates files for quality and proper formatting.",
-                ],
-            ),
-            (
-                "File renaming",
-                [
-                    "Files are renamed for consistency using this pattern:",
-                    "    [SourceFolder]_[Type]_[Number].[Ext]",
-                    "    Example:  MyMedia_video_0001.mp4",
-                ],
-            ),
-            (
-                "Output folders",
-                [
-                    "review/  →  media that passed or needs a quick look.",
-                    "defects/  →  media that failed quality checks.",
-                    "_report.txt  →  full log of every decision made.",
-                ],
-            ),
-            (
-                "Quick start",
-                [
-                    "1.  Choose a source folder.",
-                    "2.  Select the media type to process.",
-                    "3.  Preview the results.",
-                    "4.  Run.",
-                ],
-            ),
+        intro_text = (
+            "ClipSorter is non-destructive. It reads your raw media and creates an organized "
+            "copy in a new folder. Your original files are NEVER touched or deleted."
+        )
+        ttk.Label(
+            container,
+            text=intro_text,
+            font=("Arial", 10, "italic"),
+            foreground="#2980b9",
+            justify="center",
+            wraplength=480,
+        ).grid(row=0, column=0, pady=(0, 15))
+
+        # Button Guide Section
+        guide_frame = ttk.LabelFrame(container, text=" How to use the controls ", padding=10)
+        guide_frame.grid(row=1, column=0, sticky="ew")
+        guide_frame.columnconfigure(1, weight=1)
+
+        buttons = [
+            ("Browse", "Select the folder containing your raw photos, videos, or audio."),
+            ("Preview", "See what WOULD happen without actually moving or converting any files."),
+            ("Run", "Start the full process. Files will be converted, analyzed, and sorted."),
+            ("Manual", "Opens a fast viewer for you to manually pick which photos to keep."),
+            ("Cancel", "Safely stop the current operation at any time."),
         ]
 
-        for i, (heading, bullets) in enumerate(sections):
+        for i, (btn_name, desc) in enumerate(buttons):
+            tk.Label(
+                guide_frame, 
+                text=btn_name, 
+                font=("Arial", 9, "bold"), 
+                fg="#2c3e50",
+                width=8,
+                anchor="e"
+            ).grid(row=i, column=0, padx=(0, 10), pady=3, sticky="ne")
+            
             ttk.Label(
-                container,
-                text=heading,
-                font=("Arial", 10, "bold"),
-            ).grid(row=i * 2, column=0, sticky="w", pady=(10, 2))
+                guide_frame, 
+                text=desc, 
+                font=("Arial", 9),
+                wraplength=380,
+                justify="left"
+            ).grid(row=i, column=1, pady=3, sticky="nw")
 
-            bullet_text = "\n".join(f"  •  {line}" if not line.startswith(" ") else line for line in bullets)
-            ttk.Label(
-                container,
-                text=bullet_text,
-                font=("Arial", 10),
-                justify="left",
-                wraplength=440,
-                anchor="w",
-            ).grid(row=i * 2 + 1, column=0, sticky="w", padx=(8, 0))
+        # Results Guide
+        results_frame = ttk.Frame(container, padding=(0, 15))
+        results_frame.grid(row=2, column=0, sticky="ew")
+        results_frame.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            results_frame,
+            text="Understanding your results:",
+            font=("Arial", 10, "bold")
+        ).grid(row=0, column=0, sticky="w")
+
+        results_text = (
+            "• review/  →  Clean files and those that need a quick human check.\n"
+            "• defects/ →  Files that are very blurry, shaky, silent, or dark.\n"
+            "• _report.txt → A full list of every quality check and decision made."
+        )
+        ttk.Label(
+            results_frame,
+            text=results_text,
+            font=("Arial", 9),
+            justify="left"
+        ).grid(row=1, column=0, sticky="w", padx=15, pady=5)
 
         ttk.Separator(self, orient="horizontal").grid(
-            row=4, column=0, sticky="ew", padx=20, pady=(14, 8)
+            row=4, column=0, sticky="ew", padx=20, pady=(10, 8)
         )
 
         # Footer controls
@@ -107,20 +132,17 @@ class WelcomeView(ttk.Frame):
         self.dont_show_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             footer,
-            text="Don't show this again",
+            text="Don't show this guide again",
             variable=self.dont_show_var,
         ).grid(row=0, column=0, sticky="w")
 
         ttk.Button(
             footer,
-            text="Get Started →",
+            text="Start Using ClipSorter →",
             command=self._close,
         ).grid(row=0, column=1, sticky="e")
 
         self.bind("<Configure>", self._on_resize)
-        self._labels: list[ttk.Label] = [
-            w for w in container.winfo_children() if isinstance(w, ttk.Label) and w.cget("font") == "Arial 10"
-        ]
 
     def _on_resize(self, event: tk.Event) -> None:
         new_wrap = max(100, event.width - 60)

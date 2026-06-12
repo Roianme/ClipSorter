@@ -50,7 +50,7 @@ GITHUB_REPO = "Roianme/pili" # Correct repo for update checking
 class ClipSorterApp:
     def __init__(self) -> None:
         self.root = BaseTk()
-        self.root.title(f"ClipSorter v{__version__}")
+        self.root.title(f"ClipSorter v{__version__} [BETA]")
         
         self.settings = SettingsManager(SETTINGS_FILE)
         self.gui_state = self.settings.load()
