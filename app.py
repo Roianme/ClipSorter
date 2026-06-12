@@ -55,9 +55,9 @@ class ClipSorterApp:
         self.settings = SettingsManager(SETTINGS_FILE)
         self.gui_state = self.settings.load()
         
-        geometry = self.gui_state.get("geometry", "600x450")
+        geometry = self.gui_state.get("geometry", "500x400")
         self.root.geometry(geometry)
-        self.root.minsize(550, 450)
+        self.root.minsize(500, 400)
 
         # Check for FFmpeg/FFprobe binaries on startup
         missing_binaries = check_all_dependencies()
@@ -325,6 +325,7 @@ Drag and drop a folder here.""")
 
         self.run_button.config(state="disabled")
         self.preview_button.config(state="disabled")
+        self.manual_button.config(state="disabled")
         self.cancel_button.config(state="normal")
         self.open_button.config(state="disabled")
         self.log_text.config(state="normal")
