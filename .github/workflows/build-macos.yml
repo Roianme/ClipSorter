@@ -3,7 +3,6 @@ name: Build macOS App
 on:
   workflow_dispatch:  # manual trigger for testing
   push:
-    branches: [ feature/macos-windows-support ]
     tags:
       - 'v*'         # run on version tags
 
