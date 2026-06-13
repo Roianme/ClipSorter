@@ -15,7 +15,10 @@ yolo_model_path = os.path.join(spec_root, 'yolov8n.pt')
 _bundle_ffmpeg = os.environ.get("BUNDLE_FFMPEG", "0") == "1"
 
 # Determine platform specifics
-if sys.platform == 'win32':
+is_win = sys.platform == 'win32'
+upx_enabled = is_win # Disable UPX on macOS
+
+if is_win:
     ffmpeg_bin = 'ffmpeg.exe'
     ffprobe_bin = 'ffprobe.exe'
 elif sys.platform == 'darwin':
@@ -75,6 +78,8 @@ hidden_imports_common = [
 ]
 
 # --- Analysis ---
+common_excludes = ['tensorboard', 'matplotlib', 'PIL.ImageQt', 'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 'IPython', 'jupyter']
+
 a_gui = Analysis(
     ['app.py'], 
     pathex=[spec_root], 
@@ -84,7 +89,7 @@ a_gui = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=common_excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -117,7 +122,7 @@ exe_onefile = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=upx_enabled,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -146,7 +151,7 @@ exe_onedir = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=upx_enabled,
     console=False,
     disable_windowed_traceback=False,
 )
@@ -158,7 +163,7 @@ coll_gui = COLLECT(
     a_gui.datas,
     [('config.json', os.path.join(spec_root, 'config.json'), 'DATA')],
     strip=False,
-    upx=True,
+    upx=upx_enabled,
     upx_exclude=[],
     name='ClipSorter-GUI-QuickStart',
 )
@@ -173,7 +178,7 @@ a_cli = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=common_excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -191,7 +196,7 @@ exe_cli = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=upx_enabled,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True, 
