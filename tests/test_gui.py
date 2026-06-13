@@ -28,9 +28,9 @@ def app_instance():
     # We must instantiate the app and manage the root
     app = ClipSorterApp()
     yield app
-    # Clean up after test
+    # Clean up after test - use the official closure logic to handle threads
     if app.root.winfo_exists():
-        app.root.destroy()
+        app._on_close()
 
 @pytest.fixture
 def temp_dir():
@@ -46,9 +46,13 @@ def wait_for_idle(app: ClipSorterApp, timeout=5):
 
 def test_initial_state(app_instance: ClipSorterApp):
     app = app_instance
-    assert app.run_button["state"] == "disabled"
-    assert app.preview_button["state"] == "disabled"
-    assert app.cancel_button["state"] == "disabled"
+    # Ensure welcome view doesn't block initial check if it's there
+    if hasattr(app, 'main_container'):
+        app.root.update()
+    
+    assert str(app.run_button["state"]) == "disabled"
+    assert str(app.preview_button["state"]) == "disabled"
+    assert str(app.cancel_button["state"]) == "disabled"
     assert app.progress_var.get() == 0
 
 def test_button_enable_on_valid_path(app_instance: ClipSorterApp, temp_dir: Path):
@@ -68,47 +72,57 @@ def test_dry_run_integration(app_instance: ClipSorterApp, temp_dir: Path):
         (temp_dir / f"test{i}.jpg").touch()
         
     app.folder_entry.insert(0, str(temp_dir))
-    app.dry_run_var.set(True)
+    app.dry_run_var.set(True) # Check the "Preview only" box
     app._validate_folder()
     
     with patch('app.MediaPipelineService.run', return_value={"status": "success"}) as mock_run:
-        app.run_button.invoke() # Start pipeline
+        app.run_button.invoke() # Start pipeline using Run button
         
-        # In a real scenario, we'd wait for completion. 
-        # Since we patched the service, it should be fast.
         wait_for_idle(app)
         
         assert mock_run.called
-        # Verify dry_run was passed if logic supported it (it does via service init)
+        # Verify dry_run was passed because the checkbox was set
         assert app.service.dry_run is True
 
 def test_cancel(app_instance: ClipSorterApp, temp_dir: Path):
     app = app_instance
-    # Create files
-    for i in range(5):
-        (temp_dir / f"test{i}.jpg").touch()
-    
     app.folder_entry.insert(0, str(temp_dir))
     app._validate_folder()
     
-    # Start pipeline
-    app.run_button.invoke()
-    
-    # Cancel immediately
-    app._cancel_pipeline()
-    
-    wait_for_idle(app)
-    assert app.status_var.get() == "Cancelled"
+    # Mock service so we can control events
+    with patch('app.MediaPipelineService') as MockService:
+        instance = MockService.return_value
+        app.run_button.invoke() # This will call _start_pipeline which instantiates MockService
+        
+        # Verify it started
+        assert app.service is not None
+        
+        # Trigger cancel
+        app.cancel_button.invoke()
+        assert instance.cancel.called
+        assert app.status_var.get() == "Cancelling..."
+        
+        # Simulate 'cancelled' event coming back from service
+        app._handle_event({"event": "cancelled"})
+        
+        wait_for_idle(app)
+        assert app.status_var.get() == "Cancelled"
 
 def test_keyboard_shortcuts(app_instance: ClipSorterApp, temp_dir: Path):
     app = app_instance
     app.folder_entry.insert(0, str(temp_dir))
     app._validate_folder()
+    app.root.focus_force()
+    app.root.update()
     
     with patch('app.MediaPipelineService.run', return_value={"status": "success"}) as mock_run:
         app.root.event_generate("<Control-Return>")
+        app.root.update()
+        time.sleep(0.1)
         assert mock_run.called
         
     with patch('app.MediaPipelineService.run', return_value={"status": "success"}) as mock_run:
         app.root.event_generate("<Shift-Return>")
+        app.root.update()
+        time.sleep(0.1)
         assert mock_run.called

@@ -29,12 +29,15 @@ from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_E
 
 
 # Try loading optional dependencies
+HAS_DND = False
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
+    # Test if we can actually instantiate it (some environments have broken Tcl paths)
+    _test_root = TkinterDnD.Tk()
+    _test_root.destroy()
     HAS_DND = True
     BaseTk = TkinterDnD.Tk
-except ImportError:
-    HAS_DND = False
+except (ImportError, Exception):
     BaseTk = tk.Tk
 
 MODE_OPTIONS = [
@@ -245,7 +248,7 @@ Drag and drop a folder here.""")
         # Buttons
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", pady=10)
-        self.run_button = ttk.Button(btn_frame, text="Run (Ctrl+Enter)", command=lambda: self._start_pipeline(False), state="disabled")
+        self.run_button = ttk.Button(btn_frame, text="Run (Ctrl+Enter)", command=lambda: self._start_pipeline(self.dry_run_var.get()), state="disabled")
         self.run_button.pack(side="left", padx=5)
         ToolTip(self.run_button, "Start organizing (Ctrl+Enter)")
         
