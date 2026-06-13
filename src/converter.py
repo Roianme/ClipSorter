@@ -51,7 +51,7 @@ class ConvertedFileRecord(FileRecord, total=False):
 
 
 def get_work_dir() -> Path:
-    """Cross-platform temp work directory (e.g. %TEMP%\clipsorter_work on Windows)."""
+    r"""Cross-platform temp work directory (e.g. %TEMP%\clipsorter_work on Windows)."""
     work_dir = Path(tempfile.gettempdir()) / WORK_DIR_NAME
     work_dir.mkdir(parents=True, exist_ok=True)
     return work_dir
