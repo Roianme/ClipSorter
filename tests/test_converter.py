@@ -218,6 +218,7 @@ def test_video_h264_uses_stream_copy(
     monkeypatch.setattr("converter._run_command", fake_run)
     monkeypatch.setattr("converter._ffmpeg_available", lambda: True)
     monkeypatch.setattr("converter._ffprobe_available", lambda: True)
+    monkeypatch.setattr("converter.resolve_binary", lambda name: name)
 
     result = convert_file(_record(source, "video", ".mov"), config, work_dir=work_dir)
 
@@ -247,6 +248,7 @@ def test_video_non_h264_reencodes_with_config_crf(
     monkeypatch.setattr("converter._run_command", fake_run)
     monkeypatch.setattr("converter._ffmpeg_available", lambda: True)
     monkeypatch.setattr("converter._ffprobe_available", lambda: True)
+    monkeypatch.setattr("converter.resolve_binary", lambda name: name)
 
     convert_file(_record(source, "video", ".mkv"), config, work_dir=work_dir)
 

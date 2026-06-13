@@ -8,6 +8,7 @@ from pathlib import Path
 from pipeline_shared import CancellationToken
 from sort_photo import sort_photo
 from PIL import Image
+from unittest.mock import patch, MagicMock
 
 def test_pipeline_cancellation(tmp_path: Path) -> None:
     source = tmp_path / "TargetFolder"
@@ -20,26 +21,35 @@ def test_pipeline_cancellation(tmp_path: Path) -> None:
 
     token = CancellationToken()
     
-    # Run the pipeline in a separate thread
-    def run():
-        # Pass the token
-        sort_photo(source, cancel_token=token)
+    # Mock the classifier to avoid loading YOLO model and speed up tests
+    with patch("classifier.classify_file") as mock_classify:
+        # Mock result that says everything is okay
+        mock_classify.return_value = {
+            "blur_check": "pass",
+            "exposure_check": "pass",
+            "shake_check": "pass",
+            "reasons": []
+        }
+        
+        # Run the pipeline in a separate thread
+        def run():
+            # Pass the token
+            sort_photo(source, cancel_token=token)
 
-    thread = threading.Thread(target=run)
-    thread.start()
+        thread = threading.Thread(target=run)
+        thread.start()
 
-    # Give it a moment to start
-    time.sleep(0.5)
-    
-    # Cancel the pipeline
-    token.cancel()
-    
-    thread.join(timeout=5)
-    
-    assert not thread.is_alive(), "Pipeline should have finished after cancellation"
-    
-    # Check that it did not complete successfully by checking for output
-    output = tmp_path / "TargetFolder_sorted"
-    # It might create the folder, but shouldn't have a report or complete successfully
-    # Actually, the requirement says "Not write a final report file"
-    assert not (output / "_report.txt").exists(), "Report should not have been created"
+        # Give it a moment to start
+        time.sleep(0.5)
+        
+        # Cancel the pipeline
+        token.cancel()
+        
+        thread.join(timeout=5)
+        
+        assert not thread.is_alive(), "Pipeline should have finished after cancellation"
+        
+        # Check that it did not complete successfully by checking for output
+        output = tmp_path / "TargetFolder_sorted"
+        # It might create the folder, but shouldn't have a report or complete successfully
+        assert not (output / "_report.txt").exists(), "Report should not have been created"
