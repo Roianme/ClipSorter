@@ -32,12 +32,9 @@ from src.binary_resolver import check_all_dependencies, resolve_binary, FFMPEG_E
 HAS_DND = False
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
-    # Test if we can actually instantiate it (some environments have broken Tcl paths)
-    _test_root = TkinterDnD.Tk()
-    _test_root.destroy()
-    HAS_DND = True
     BaseTk = TkinterDnD.Tk
-except (ImportError, Exception):
+    HAS_DND = True
+except ImportError:
     BaseTk = tk.Tk
 
 MODE_OPTIONS = [
@@ -52,7 +49,14 @@ GITHUB_REPO = "Roianme/pili" # Correct repo for update checking
 
 class ClipSorterApp:
     def __init__(self) -> None:
-        self.root = BaseTk()
+        global HAS_DND
+        try:
+            self.root = BaseTk()
+        except Exception:
+            # Fallback if BaseTk (TkinterDnD) fails at runtime due to env issues
+            self.root = tk.Tk()
+            HAS_DND = False
+            
         self.root.title(f"ClipSorter v{__version__} [BETA]")
         
         self.settings = SettingsManager(SETTINGS_FILE)

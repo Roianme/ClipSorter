@@ -1,0 +1,73 @@
+name: Build Windows App
+
+on:
+  workflow_dispatch:  # manual trigger
+  push:
+    tags:
+      - 'v*'         # run on version tags
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller clipSorter.spec --clean --noconfirm
+        shell: pwsh
+
+      - name: Package artifacts
+        run: |
+          # Create a directory for the release artifacts
+          mkdir release_dist
+          
+          # 1. Portable EXE + config.json
+          mkdir release_dist/ClipSorter-Portable
+          cp dist/ClipSorter-GUI-Portable.exe release_dist/ClipSorter-Portable/
+          cp config.json release_dist/ClipSorter-Portable/
+          
+          # 2. GUI QuickStart (One-Dir)
+          # This is already a folder in dist/ClipSorter-GUI-QuickStart
+          cp -r dist/ClipSorter-GUI-QuickStart release_dist/
+          
+          # 3. CLI tool
+          mkdir release_dist/ClipSorter-CLI
+          cp dist/ClipSorter-CLI.exe release_dist/ClipSorter-CLI/
+          cp config.json release_dist/ClipSorter-CLI/
+
+          # Zip them up
+          cd release_dist
+          Compress-Archive -Path ClipSorter-Portable -DestinationPath ../ClipSorter-Windows-Portable.zip
+          Compress-Archive -Path ClipSorter-GUI-QuickStart -DestinationPath ../ClipSorter-Windows-QuickStart.zip
+          Compress-Archive -Path ClipSorter-CLI -DestinationPath ../ClipSorter-Windows-CLI.zip
+        shell: pwsh
+
+      - name: Upload Portable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipSorter-Windows-Portable
+          path: ClipSorter-Windows-Portable.zip
+
+      - name: Upload QuickStart Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipSorter-Windows-QuickStart
+          path: ClipSorter-Windows-QuickStart.zip
+
+      - name: Upload CLI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipSorter-Windows-CLI
+          path: ClipSorter-Windows-CLI.zip

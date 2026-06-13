@@ -49,10 +49,40 @@ jobs:
         run: |
           cd dist
           # The spec file creates ClipSorter.app for macOS
-          zip -r ../clipSorter-macOS.zip ClipSorter.app || zip -r ../clipSorter-macOS.zip *
+          zip -r ../ClipSorter-macOS.zip ClipSorter.app || zip -r ../ClipSorter-macOS.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: clipSorter-macOS
-          path: clipSorter-macOS.zip
+          path: ClipSorter-macOS.zip
+
+  smoke-test:
+    needs: build-macos
+    runs-on: macos-latest
+    steps:
+      - name: Download built app
+        uses: actions/download-artifact@v4
+        with:
+          name: clipSorter-macOS
+
+      - name: Smoke test (launch & quit)
+        run: |
+          # Unzip the artifact
+          unzip ClipSorter-macOS.zip
+          
+          # Make the binary executable
+          chmod -R +x ClipSorter.app
+
+          # Launch the app in the background
+          # We use the absolute path to the .app
+          open "$PWD/ClipSorter.app"
+
+          # Give it a few seconds to fully open
+          sleep 15
+
+          # Ask it to quit gracefully
+          # The application name in 'tell application' usually matches the bundle name
+          osascript -e 'tell application "ClipSorter" to quit'
+
+          echo "Smoke test finished – app launched and quit."

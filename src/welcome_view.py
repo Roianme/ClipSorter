@@ -55,7 +55,7 @@ class WelcomeView(ttk.Frame):
 
         intro_text = (
             "ClipSorter is non-destructive. It reads your raw media and creates an organized "
-            "copy in a new folder. Your original files are NEVER touched or deleted."
+            "copy in a new folder. Your original files are NEVER deleted."
         )
         ttk.Label(
             container,
