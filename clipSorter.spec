@@ -80,7 +80,7 @@ hidden_imports_common = [
 # --- Analysis ---
 common_excludes = [
     'tensorboard', 'matplotlib', 'PIL.ImageQt', 'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 
-    'IPython', 'jupyter', 'torch.testing', 'numpy.tests', 'unittest'
+    'IPython', 'jupyter'
 ]
 
 a_gui = Analysis(
