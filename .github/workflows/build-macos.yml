@@ -60,7 +60,7 @@ jobs:
       - name: Download built app
         uses: actions/download-artifact@v4
         with:
-          name: clipSorter-macOS
+          name: ClipSorter-macOS
 
       - name: Smoke test (launch & quit)
         run: |
