@@ -28,7 +28,7 @@ def app_instance():
     # Mock dependency check to avoid blocking dialogs on systems without ffmpeg
     with patch('app.check_all_dependencies', return_value=[]):
         # Mock update check to avoid network calls and crashes in CI
-        with patch('app.ClipSorterApp.check_for_updates'):
+        with patch('app.ClipSorterApp._schedule_update_check'):
             app = ClipSorterApp()
             yield app
             # Clean up after test - use the official closure logic to handle threads
