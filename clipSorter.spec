@@ -81,7 +81,8 @@ hidden_imports_common = [
 common_excludes = [
     'tensorboard', 'matplotlib', 'PIL.ImageQt', 'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 
     'IPython', 'jupyter', 'torch.distributed', 'torch.testing', 'torch.utils.data.datapipes',
-    'torchvision.datasets', 'scipy.stats', 'scipy.integrate'
+    'torchvision.datasets', 'scipy.stats', 'scipy.integrate', 'scipy.optimize', 
+    'cv2.qt', 'cv2.data', 'numpy.tests', 'unittest'
 ]
 
 a_gui = Analysis(
