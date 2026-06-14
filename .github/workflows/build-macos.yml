@@ -60,11 +60,10 @@ jobs:
           name: ClipSorter-macOS
           path: ClipSorter-macOS-Production.zip
 
-
-      smoke-test:
-      needs: build-macos
-      runs-on: macos-latest
-      steps:
+  smoke-test:
+    needs: build-macos
+    runs-on: macos-latest
+    steps:
       - name: Download built app
         uses: actions/download-artifact@v4
         with:
@@ -77,8 +76,6 @@ jobs:
           unzip ClipSorter-macOS-Production.zip
 
           # Make the binary executable
-          chmod -R +x ClipSorter.app
-
           chmod -R +x ClipSorter.app
 
           # Launch the app in the background
