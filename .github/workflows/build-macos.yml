@@ -61,17 +61,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ClipSorter-macOS
+          path: ClipSorter.app
 
       - name: Smoke test (launch & quit)
         run: |
-          # Unzip the artifact
-          unzip ClipSorter-macOS.zip
-          
           # Make the binary executable
           chmod -R +x ClipSorter.app
 
           # Launch the app in the background
-          # We use the absolute path to the .app
           open "$PWD/ClipSorter.app"
 
           # Give it a few seconds to fully open
