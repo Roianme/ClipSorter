@@ -27,11 +27,13 @@ pytestmark = pytest.mark.skipif(not is_gui_available(), reason="No display avail
 def app_instance():
     # Mock dependency check to avoid blocking dialogs on systems without ffmpeg
     with patch('app.check_all_dependencies', return_value=[]):
-        app = ClipSorterApp()
-        yield app
-        # Clean up after test - use the official closure logic to handle threads
-        if app.root.winfo_exists():
-            app._on_close()
+        # Mock update check to avoid network calls and crashes in CI
+        with patch('app.ClipSorterApp.check_for_updates'):
+            app = ClipSorterApp()
+            yield app
+            # Clean up after test - use the official closure logic to handle threads
+            if app.root.winfo_exists():
+                app._on_close()
 
 @pytest.fixture
 def temp_dir():
