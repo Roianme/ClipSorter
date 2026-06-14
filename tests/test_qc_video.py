@@ -116,7 +116,7 @@ def test_steady_shot_found(config: dict[str, Any], tmp_path: Path, monkeypatch: 
     
     # Return 20 frames then stop
     mock_cap.read.side_effect = [(True, good_frame.copy()) for _ in range(20)] + [(False, None)]
-    mock_cap.grab.side_effect = [True] * 100 + [False]
+    mock_cap.grab.return_value = True
 
     with patch("cv2.VideoCapture", return_value=mock_cap):
         # We also need to mock _shake_magnitude_for_pair to return low shake
@@ -144,7 +144,7 @@ def test_no_steady_shot_found(config: dict[str, Any], tmp_path: Path, monkeypatc
     # All frames are blurry (uniform grey)
     blurry_frame = np.full((64, 64, 3), 128, dtype=np.uint8)
     mock_cap.read.side_effect = [(True, blurry_frame.copy()) for _ in range(20)] + [(False, None)]
-    mock_cap.grab.side_effect = [True] * 100 + [False]
+    mock_cap.grab.return_value = True
 
     with patch("cv2.VideoCapture", return_value=mock_cap):
         result = analyze_video(path, config)
