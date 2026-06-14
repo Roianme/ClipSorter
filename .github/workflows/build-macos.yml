@@ -71,10 +71,9 @@ jobs:
 
       - name: Smoke test (launch & quit)
         run: |
-          # Unzip the artifact (Actions wraps our zip in another zip)
-          unzip ClipSorter-macOS.zip
+          # The runner downloads the artifact contents directly (the Production zip)
           unzip ClipSorter-macOS-Production.zip
-
+          
           # Make the binary executable
           chmod -R +x ClipSorter.app
 
