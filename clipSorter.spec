@@ -79,7 +79,7 @@ hidden_imports_common = [
 
 # --- Analysis ---
 common_excludes = [
-    'tensorboard', 'matplotlib', 'PIL.ImageQt', 'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 
+    'tensorboard', 'PIL.ImageQt', 'PyQt5', 'PySide2', 'PyQt6', 'PySide6', 
     'IPython', 'jupyter'
 ]
 
