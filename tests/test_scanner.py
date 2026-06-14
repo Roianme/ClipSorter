@@ -45,7 +45,7 @@ def sample_media_tree(tmp_path: Path) -> Path:
     (root / "documents" / "brief.pdf").parent.mkdir(parents=True, exist_ok=True)
     (root / "documents" / "brief.pdf").write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     (root / "notes.txt").write_text("shoot list", encoding="utf-8")
-    (root / "fake.jpg").write_text("not an image", encoding="utf-8")
+    (root / "unsupported.raw_data").write_text("not media", encoding="utf-8")
 
     return root
 
@@ -84,14 +84,14 @@ def test_scan_folder_skips_unsupported_and_logs(sample_media_tree: Path, caplog)
     with caplog.at_level(logging.INFO):
         records = scan_folder(sample_media_tree)
 
-    skipped_names = {"brief.pdf", "notes.txt", "fake.jpg"}
+    skipped_names = {"brief.pdf", "notes.txt", "unsupported.raw_data"}
     found_names = {record["filename"] for record in records}
     assert skipped_names.isdisjoint(found_names)
 
     messages = " ".join(record.message for record in caplog.records).lower()
     assert "brief.pdf" in messages
     assert "notes.txt" in messages
-    assert "fake.jpg" in messages
+    assert "unsupported.raw_data" in messages
 
 
 def test_scan_folder_recursive_subfolders(sample_media_tree: Path):
@@ -120,7 +120,8 @@ def test_classify_ignored_extension_without_reading_magic(tmp_path: Path, monkey
 
 def test_scan_folder_invalid_path_raises(tmp_path: Path):
     missing = tmp_path / "does_not_exist"
-    with pytest.raises(NotADirectoryError):
+    # Unified behavior: scan_folder raises FileNotFoundError if path doesn't exist
+    with pytest.raises(FileNotFoundError):
         scan_folder(missing)
 
 

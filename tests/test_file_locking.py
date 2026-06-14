@@ -16,8 +16,10 @@ def is_gui_available():
 @pytest.mark.skipif(not is_gui_available(), reason="No display available for GUI tests")
 def test_file_locking(tmp_path):
     from src.live_viewer import LiveViewFrame
-    # Setup in tmp_path
-    test_file = tmp_path / "test_image.jpg"
+    # Setup directory with an image
+    test_dir = tmp_path / "test_dir"
+    test_dir.mkdir()
+    test_file = test_dir / "test_image.jpg"
     
     # Create a dummy image
     from PIL import Image
@@ -25,13 +27,13 @@ def test_file_locking(tmp_path):
     
     root = tk.Tk()
     
-    # 1. Open with our non-blocking viewer
-    viewer = LiveViewFrame(root, test_file)
+    # 1. Open with our non-blocking viewer (expects a folder)
+    viewer = LiveViewFrame(root, test_dir)
     root.update()
     
     # 2. Try to rename the file (which requires a write lock/exclusive access)
     try:
-        new_name = tmp_path / "test_image_renamed.jpg"
+        new_name = test_dir / "test_image_renamed.jpg"
         test_file.rename(new_name)
         # SUCCESS: File was not locked!
         new_name.rename(test_file) # Restore

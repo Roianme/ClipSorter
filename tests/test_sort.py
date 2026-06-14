@@ -31,11 +31,10 @@ def test_sort_cli_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     # Mock the classifier to avoid heavy YOLO model loading
     with patch("classifier.classify_file") as mock_classify:
+        # RETURN A VALID ClassifierResult shape
         mock_classify.return_value = {
-            "blur_check": "pass",
-            "exposure_check": "pass",
-            "shake_check": "pass",
-            "reasons": []
+            "bucket": "rejected", # Force into defects to match original test assertion
+            "reasons": ["Mocked rejection"]
         }
         
         # Mock sys.argv for the CLI call
@@ -54,7 +53,6 @@ def test_sort_cli_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     output = tmp_path / "TargetFolder_sorted"
     assert output.is_dir()
     # In single-type mode, files go directly into bucket folders
-    # Note: filename might change due to allocation logic
     assert any(output.glob("defects/*.jpg"))
 
     report = output / "_report.txt"

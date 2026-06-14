@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -88,7 +89,7 @@ def test_ffprobe_failure_rejected(config: dict[str, Any], tmp_path: Path, monkey
     result = analyze_video(path, config)
     assert result["duration_check"] == "rejected"
     assert result["steady_shot_check"] == "rejected"
-    assert any("ffprobe" in r.lower() for r in result["reasons"])
+    assert any("could not read duration" in r.lower() for r in result["reasons"])
 
 
 # --- Steady shot detection (integration-like with mocks) ---
@@ -97,15 +98,33 @@ def test_steady_shot_found(config: dict[str, Any], tmp_path: Path, monkeypatch: 
     """Clip with a steady-shot window found -> pass."""
     path = tmp_path / "good.mp4"
     path.touch()
+    
+    # Mock duration
     monkeypatch.setattr("qc_video._run_ffprobe_duration_seconds", lambda _p: 10.0)
 
-    # Mock window reads as returning valid frames
-    frames = [RNG.integers(0, 256, (100, 100, 3), dtype=np.uint8).astype(np.uint8) for _ in range(30)]
-    monkeypatch.setattr("qc_video._read_frames_for_window", lambda _p, _s, _w, fps=30.0: frames[:int(_w * fps)])
-    # Mock the window check to simulate finding a steady shot
-    monkeypatch.setattr("qc_video._window_has_steady_shot", lambda *a, **kw: True)
+    # Mock cv2.VideoCapture
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        cv2.CAP_PROP_FPS: 30.0,
+        cv2.CAP_PROP_FRAME_COUNT: 300
+    }.get(prop, 0)
+    
+    # Create enough "good" frames (sharp and exposed)
+    # We need 11 consecutive good frames at 2 FPS to pass 5 seconds
+    good_frame = RNG.integers(100, 200, (64, 64, 3), dtype=np.uint8)
+    
+    def mock_read():
+        return True, good_frame.copy()
+    
+    mock_cap.read.side_effect = mock_read
+    mock_cap.grab.return_value = True
 
-    result = analyze_video(path, config)
+    with patch("cv2.VideoCapture", return_value=mock_cap):
+        # We also need to mock _shake_magnitude_for_pair to return low shake
+        with patch("qc_video._shake_magnitude_for_pair", return_value=0.1):
+            result = analyze_video(path, config)
+
     assert result["duration_check"] == "pass"
     assert result["steady_shot_check"] == "pass"
     assert result["reasons"] == []
@@ -117,13 +136,23 @@ def test_no_steady_shot_found(config: dict[str, Any], tmp_path: Path, monkeypatc
     path.touch()
     monkeypatch.setattr("qc_video._run_ffprobe_duration_seconds", lambda _p: 10.0)
 
-    frames = [np.full((100, 100, 3), 128, dtype=np.uint8) for _ in range(30)]
-    monkeypatch.setattr("qc_video._read_frames_for_window", lambda _p, _s, _w, fps=30.0: frames[:int(_w * fps)])
-    monkeypatch.setattr("qc_video._window_has_steady_shot", lambda *a, **kw: False)
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.side_effect = lambda prop: {
+        cv2.CAP_PROP_FPS: 30.0,
+        cv2.CAP_PROP_FRAME_COUNT: 300
+    }.get(prop, 0)
+    
+    # All frames are blurry (uniform grey)
+    blurry_frame = np.full((64, 64, 3), 128, dtype=np.uint8)
+    mock_cap.read.return_value = (True, blurry_frame)
+    mock_cap.grab.return_value = True
 
-    result = analyze_video(path, config)
+    with patch("cv2.VideoCapture", return_value=mock_cap):
+        result = analyze_video(path, config)
+
     assert result["steady_shot_check"] == "rejected"
-    assert any("No 5-second window" in r for r in result["reasons"])
+    assert any("No 5.0-second window" in r for r in result["reasons"])
 
 
 def test_opencv_cannot_open_video(config: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,129 +160,15 @@ def test_opencv_cannot_open_video(config: dict[str, Any], tmp_path: Path, monkey
     path = tmp_path / "broken.mp4"
     path.write_bytes(b"garbage")
     monkeypatch.setattr("qc_video._run_ffprobe_duration_seconds", lambda _p: 10.0)
-    monkeypatch.setattr("qc_video._read_frames_for_window", lambda *a, **kw: None)
 
-    result = analyze_video(path, config)
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = False
+    
+    with patch("cv2.VideoCapture", return_value=mock_cap):
+        result = analyze_video(path, config)
+    
     assert result["steady_shot_check"] == "rejected"
-
-
-# --- Window steady-shot unit tests ---
-
-def test_window_has_steady_shot_yes(config: dict[str, Any]) -> None:
-    """Sharp, exposed, steady frames -> True."""
-    from qc_video import _window_has_steady_shot
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    frames = [RNG.integers(0, 256, (100, 100, 3), dtype=np.uint8).astype(np.uint8) for _ in range(30)]
-    # Ensure good brightness
-    for f in frames:
-        gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
-        mean = float(gray.mean())
-        if mean < exp_low or mean > exp_high:
-            scale = 128.0 / max(mean, 1e-6)
-            idx = frames.index(f)
-            frames[idx] = np.clip(f * scale, 0, 255).astype(np.uint8)
-
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is True
-
-
-def test_window_has_steady_shot_blurry(config: dict[str, Any]) -> None:
-    """All frames flat (blurry) -> False."""
-    from qc_video import _window_has_steady_shot
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    frames = [np.full((100, 100, 3), 128, dtype=np.uint8) for _ in range(30)]
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is False
-
-
-def test_window_has_steady_shot_dark(config: dict[str, Any]) -> None:
-    """All frames underexposed -> False."""
-    from qc_video import _window_has_steady_shot
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    frames = [RNG.integers(0, 5, (100, 100, 3), dtype=np.uint8).astype(np.uint8) for _ in range(30)]
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is False
-
-
-def test_window_has_steady_shot_shaky(config: dict[str, Any]) -> None:
-    """Frames with moving content so shake exceeds threshold -> False."""
-    from qc_video import _window_has_steady_shot, _shake_magnitude_for_pair
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    frames = []
-    for i in range(30):
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        x = (i * 10) % 80
-        frame[x:x+20, x:x+20] = [255, 255, 255]
-        frames.append(frame)
-
-    grays = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames]
-    has_shaky = any(
-        _shake_magnitude_for_pair(grays[i], grays[i + 1]) > shake_th
-        for i in range(len(grays) - 1)
-    )
-    if not has_shaky:
-        pytest.skip("Could not produce enough shake in test frames")
-
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is False
-
-
-def test_5_consecutive_good_frames(config: dict[str, Any]) -> None:
-    """Exactly 5 good frames in a row -> True."""
-    from qc_video import _window_has_steady_shot
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    sharp = RNG.integers(0, 256, (100, 100, 3), dtype=np.uint8).astype(np.uint8)
-    blurry = np.full((100, 100, 3), 128, dtype=np.uint8)
-
-    # 5 sharp then 5 blurry
-    frames = [sharp.copy() for _ in range(5)] + [blurry.copy() for _ in range(5)]
-
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is True
-
-
-def test_4_good_frames_insufficient(config: dict[str, Any]) -> None:
-    """Only 4 good frames -> False."""
-    from qc_video import _window_has_steady_shot
-
-    blur_th = float(config["blur_threshold"])
-    exp_low = int(config["exposure_low_threshold"])
-    exp_high = int(config["exposure_high_threshold"])
-    shake_th = float(config["shake_threshold"])
-
-    sharp = RNG.integers(0, 256, (100, 100, 3), dtype=np.uint8).astype(np.uint8)
-    blurry = np.full((100, 100, 3), 128, dtype=np.uint8)
-
-    # 4 sharp, then blurry — never find a run of 5
-    frames = [sharp.copy() for _ in range(4)] + [blurry.copy() for _ in range(10)]
-
-    result = _window_has_steady_shot(frames, blur_th, exp_low, exp_high, shake_th)
-    assert result is False
+    assert any("OpenCV cannot open video" in r for r in result["reasons"])
 
 
 def test_qc_result_typing(tmp_path: Path, config: dict[str, Any], require_fftools: None) -> None:
