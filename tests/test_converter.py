@@ -269,10 +269,11 @@ def test_ffmpeg_failure_marks_skipped(
     source = tmp_path / "bad.mov"
     source.write_bytes(b"not a real video")
 
-    def fail_ffmpeg(_source: Path, _dest: Path, _config: dict[str, Any]) -> bool:
+    def fail_ffmpeg(_source: Path, _dest: Path, _config: dict[str, Any], **kwargs) -> bool:
         return False
 
     monkeypatch.setattr("converter._convert_video", fail_ffmpeg)
+    monkeypatch.setattr("converter.resolve_binary", lambda name: name)
 
     with caplog.at_level(logging.ERROR):
         result = convert_file(_record(source, "video", ".mov"), config, work_dir=work_dir)
