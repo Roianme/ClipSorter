@@ -2,6 +2,8 @@
 
 ClipSorter is a professional, non-destructive QC sorting tool for raw media folders. It is designed for news producers and video editors who need to quickly organize large volumes of raw media (photos, videos, and audio) before starting their edit.
 
+### 📥 [Download Latest Release (v1.0.0-beta)](https://github.com/Roianme/ClipSorter/releases/tag/v1.0.0-beta)
+
 ## Key Features
 
 - **Non-Destructive:** Your original folder is never modified or deleted.
