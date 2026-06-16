@@ -12,6 +12,7 @@ ClipSorter is a professional, non-destructive QC sorting tool for raw media fold
 - **Smart Sorting:** Groups files into `review/` and `defects/` buckets based on QC results.
 - **Burst Detection:** Identifies photo bursts and picks the best shot for your main gallery.
 - **Duplicate Detection:** Finds and flags content-level duplicates across your media.
+- **Manual Sort:** Review and sort media manually via the live viewer for precise control.
 - **Detailed Reporting:** Generates a comprehensive report of every decision made during the sort.
 
 ## Getting Started
