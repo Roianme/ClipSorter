@@ -86,7 +86,8 @@ def _allocate_output_path(work_dir: Path, source: Path, suffix: str) -> Path:
     return candidate
 
 
-def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_command(cmd: list[str], cancel_token: Optional[ps.CancellationToken] = None) -> subprocess.CompletedProcess[str]:
+    ps.check_cancelled(cancel_token)
     kwargs = {"capture_output": True, "text": True, "check": False}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -182,6 +183,7 @@ def _convert_video(
     dest: Path, 
     config: dict[str, Any],
     sub_progress: SubProgressCallback | None = None,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> bool:
     if not _ffmpeg_available():
         logger.error("ffmpeg not found in PATH; cannot convert %s", source)
@@ -212,7 +214,7 @@ def _convert_video(
     if _is_h264(codec) and not needs_rescale:
         logger.info("Video %s is already H.264 and 1080p-compliant; copying.", source.name)
         cmd = [resolve_binary("ffmpeg"), "-y", "-i", str(source), "-c", "copy", str(dest)]
-        result = _run_command(cmd)
+        result = _run_command(cmd, cancel_token=cancel_token)
     else:
         logger.info("Transcoding video %s (codec=%s, rescale=%s)", source.name, codec, needs_rescale)
         # Transcode (needed for format change or resizing)
@@ -241,9 +243,9 @@ def _convert_video(
         cmd.append(str(dest))
         
         if sub_progress:
-            result = _run_ffmpeg_with_progress(cmd, source, sub_progress)
+            result = _run_ffmpeg_with_progress(cmd, source, sub_progress, cancel_token=cancel_token)
         else:
-            result = _run_command(cmd)
+            result = _run_command(cmd, cancel_token=cancel_token)
 
     if result.returncode != 0:
         _log_ffmpeg_failure(source, result)
@@ -255,7 +257,8 @@ def _convert_video(
 def _run_ffmpeg_with_progress(
     cmd: list[str], 
     source: Path, 
-    callback: SubProgressCallback
+    callback: SubProgressCallback,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run FFmpeg and parse its output for progress (time=...)."""
     # Import locally to avoid potential circular dependency issues
@@ -280,18 +283,35 @@ def _run_ffmpeg_with_progress(
     full_output = []
     time_re = re.compile(r"time=(\d+):(\d+):(\d+)\.(\d+)")
 
-    while True:
-        line = process.stdout.readline()
-        if not line and process.poll() is not None:
-            break
-        if line:
-            full_output.append(line)
-            match = time_re.search(line)
-            if match:
-                h, m, s, _ms = map(int, match.groups())
-                elapsed = h * 3600 + m * 60 + s
-                progress_val = min(1.0, elapsed / duration)
-                callback(progress_val)
+    try:
+        while True:
+            # Check for cancellation
+            if cancel_token and cancel_token.is_cancelled():
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                raise ps.PipelineCancelledError()
+
+            # Read with timeout to allow cancellation check even if no output
+            # However, readline() is blocking. We can use a small trick or just rely on output frequency.
+            # Most ffmpeg transcoding produces output frequently.
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                full_output.append(line)
+                match = time_re.search(line)
+                if match:
+                    h, m, s, _ms = map(int, match.groups())
+                    elapsed = h * 3600 + m * 60 + s
+                    progress_val = min(1.0, elapsed / duration)
+                    callback(progress_val)
+    except Exception:
+        if process.poll() is None:
+            process.terminate()
+        raise
 
     return subprocess.CompletedProcess(
         args=cmd,
@@ -301,7 +321,12 @@ def _run_ffmpeg_with_progress(
     )
 
 
-def _convert_audio(source: Path, dest: Path, config: dict[str, Any]) -> bool:
+def _convert_audio(
+    source: Path, 
+    dest: Path, 
+    config: dict[str, Any],
+    cancel_token: Optional[ps.CancellationToken] = None,
+) -> bool:
     if not _ffmpeg_available():
         logger.error("ffmpeg not found in PATH; cannot convert %s", source)
         return False
@@ -317,7 +342,7 @@ def _convert_audio(source: Path, dest: Path, config: dict[str, Any]) -> bool:
         str(config["audio_output_bitrate"]),
         str(dest),
     ]
-    result = _run_command(cmd)
+    result = _run_command(cmd, cancel_token=cancel_token)
     if result.returncode != 0:
         _log_ffmpeg_failure(source, result)
         return False
@@ -476,7 +501,14 @@ def _convert_photo_raw(source: Path, dest: Path, timeout_sec: int, strategy: str
     return dest.is_file()
 
 
-def _convert_photo(source: Path, dest: Path, extension: str, timeout_sec: int, strategy: str) -> tuple[bool, np.ndarray | None]:
+def _convert_photo(
+    source: Path, 
+    dest: Path, 
+    extension: str, 
+    timeout_sec: int, 
+    strategy: str,
+    cancel_token: Optional[ps.CancellationToken] = None,
+) -> tuple[bool, np.ndarray | None]:
     """
     Convert photo file. For RAW with preview strategy, optionally return in-memory array.
     """
@@ -538,9 +570,9 @@ def convert_file(
         except OSError as exc:
             logger.error("Failed to copy canonical file %s: %s", source, exc)
     elif record["detected_type"] == "video":
-        success = _convert_video(source, dest, config, sub_progress=sub_progress)
+        success = _convert_video(source, dest, config, sub_progress=sub_progress, cancel_token=cancel_token)
     elif record["detected_type"] == "audio":
-        success = _convert_audio(source, dest, config)
+        success = _convert_audio(source, dest, config, cancel_token=cancel_token)
         if success and sub_progress:
             sub_progress(1.0)
     elif record["detected_type"] == "photo":
@@ -550,6 +582,7 @@ def convert_file(
             record["extension"],
             config["raw_conversion_timeout_sec"],
             config["raw_conversion_strategy"],
+            cancel_token=cancel_token,
         )
         if isinstance(convert_result, tuple):
             success, image_array = convert_result

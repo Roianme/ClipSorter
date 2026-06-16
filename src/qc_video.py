@@ -17,6 +17,8 @@ import numpy as np
 # Import binary_resolver
 from src.binary_resolver import resolve_binary # Consistent import
 
+from src import pipeline_shared as ps
+
 logger = logging.getLogger(__name__)
 
 QCLevel = Literal["pass", "rejected"]
@@ -178,7 +180,8 @@ def _resize_for_analysis(frame: np.ndarray, height: int = 240) -> np.ndarray:
 def analyze_video(
     path: Path | str, 
     config: dict[str, Any],
-    sub_progress: SubProgressCallback | None = None
+    sub_progress: SubProgressCallback | None = None,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> QCResult:
     """
     Determine if a video clip has at least 5 consecutive seconds of a steady,
@@ -240,6 +243,7 @@ def analyze_video(
         processed_frames = 0
         
         while True:
+            ps.check_cancelled(cancel_token)
             ok, frame = cap.read()
             if not ok or frame is None:
                 break

@@ -287,8 +287,10 @@ def run_qc_check_wrapper(
     config: dict[str, Any],
     qc_functions: dict[str, Callable],
     sub_progress: converter.SubProgressCallback | None = None,
+    cancel_token: Optional[CancellationToken] = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run QC analysis on a single file."""
+    check_cancelled(cancel_token)
     converted_path = record.get("converted_path")
     if not converted_path or record.get("skipped"):
         return converted_path or "", {}
@@ -309,7 +311,7 @@ def run_qc_check_wrapper(
         qc_func = qc_functions[detected_type]
         
         if detected_type == "video":
-            return converted_path, qc_func(converted_path, config, sub_progress=sub_progress)
+            return converted_path, qc_func(converted_path, config, sub_progress=sub_progress, cancel_token=cancel_token)
         elif detected_type == "photo":
             if sub_progress:
                 sub_progress(0.5) # Generic mid-point for photos
@@ -358,8 +360,10 @@ def run_classifier_check_wrapper(
     duplicate_pairs: list[Any],
     burst_groups: list[Any],
     config: dict[str, Any],
+    cancel_token: Optional[CancellationToken] = None,
 ) -> tuple[str, classifier.ClassifierResult]:
     """Classify a single file."""
+    check_cancelled(cancel_token)
     converted_path = record.get("converted_path")
     if not converted_path or record.get("skipped"):
         return converted_path or "", {"bucket": "skipped", "reasons": []}
