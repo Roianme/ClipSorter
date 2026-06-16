@@ -25,7 +25,25 @@ import reporter
 import scanner
 import pipeline_shared as ps
 
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+
 logger = logging.getLogger(__name__)
+
+
+def _as_completed_responsive(futures: dict[concurrent.futures.Future, Any], cancel_token: ps.CancellationToken | None):
+    """Yield futures as they complete, but check for cancellation frequently."""
+    remaining = set(futures.keys())
+    while remaining:
+        ps.check_cancelled(cancel_token)
+        done, _ = concurrent.futures.wait(
+            remaining, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED
+        )
+        if not done:
+            continue
+        for f in done:
+            remaining.remove(f)
+            yield f
 
 
 class PipelineConfig:
@@ -172,7 +190,7 @@ def run_media_pipeline(
             completed = 0
             # Helper for tqdm/no-tqdm
             progress_iter = ps.progress(
-                as_completed(futures),
+                _as_completed_responsive(futures, cancel_token),
                 total=total_conversions,
                 desc="Converting formats",
                 unit="file",
@@ -228,12 +246,12 @@ def run_media_pipeline(
             futures = {}
             for i, record in enumerate(converted_records):
                 sub_cb = _make_sub_cb(record, total_qc, i)
-                future = executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions, sub_progress=sub_cb)
+                future = executor.submit(ps.run_qc_check_wrapper, record, config, qc_functions, sub_progress=sub_cb, cancel_token=cancel_token)
                 futures[future] = record
 
             completed = 0
             progress_iter = ps.progress(
-                as_completed(futures),
+                _as_completed_responsive(futures, cancel_token),
                 total=total_qc,
                 desc="Running QC checks",
                 unit="file",
@@ -311,13 +329,13 @@ def run_media_pipeline(
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
                 executor.submit(
-                    ps.run_classifier_check_wrapper, record, qc_results, duplicate_pairs, burst_groups, config
+                    ps.run_classifier_check_wrapper, record, qc_results, duplicate_pairs, burst_groups, config, cancel_token=cancel_token
                 ): record
                 for record in converted_records
             }
             completed = 0
             progress_iter = ps.progress(
-                as_completed(futures),
+                _as_completed_responsive(futures, cancel_token),
                 total=total_classifications,
                 desc="Classifying files",
                 unit="file",

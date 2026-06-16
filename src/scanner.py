@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Callable, Literal, TypedDict
+from typing import Any, Callable, Literal, TypedDict, Optional
 
 import magic
+
+from src import pipeline_shared as ps
 
 logger = logging.getLogger(__name__)
 
@@ -194,12 +196,14 @@ def _build_record(path: Path, detected_type: Literal["video", "photo", "audio"])
 def scan_folder(
     target_folder: Path | str,
     progress_callback: Callable[[str], None] | None = None,
+    cancel_token: Optional[ps.CancellationToken] = None,
 ) -> list[FileRecord]:
     """
     Recursively scan target_folder (or a single file) and return supported media FileRecords.
 
     Unknown or unsupported files are skipped and logged.
     """
+    ps.check_cancelled(cancel_token)
     root = Path(target_folder)
     if not root.exists():
         raise FileNotFoundError(f"Target path does not exist: {root}")
@@ -220,6 +224,7 @@ def scan_folder(
 
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
+            ps.check_cancelled(cancel_token)
             path = Path(dirpath) / name
             processed_files += 1
             if progress_callback is not None:

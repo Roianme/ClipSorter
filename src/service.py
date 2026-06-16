@@ -90,7 +90,7 @@ class MediaPipelineService:
         modes = ["photo", "video", "audio"] if self.mode == "all" else [self.mode]
         
         # Pre-scan
-        all_records = scanner.scan_folder(self.target_folder)
+        all_records = scanner.scan_folder(self.target_folder, cancel_token=self.cancel_token)
         all_unsupported: list[dict[str, Any]] = [] # We need to handle this manually now?
         pre_scanned = (all_records, all_unsupported)
         
