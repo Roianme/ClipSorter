@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import io
 import re
@@ -86,7 +87,10 @@ def _allocate_output_path(work_dir: Path, source: Path, suffix: str) -> Path:
 
 
 def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    kwargs = {"capture_output": True, "text": True, "check": False}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return subprocess.run(cmd, **kwargs)
 
 
 def _ffmpeg_available() -> bool:
@@ -261,14 +265,17 @@ def _run_ffmpeg_with_progress(
     if not duration:
         return _run_command(cmd)
 
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "universal_newlines": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    process = subprocess.Popen(cmd, **kwargs)
 
     full_output = []
     time_re = re.compile(r"time=(\d+):(\d+):(\d+)\.(\d+)")

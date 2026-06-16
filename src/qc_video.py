@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Literal, TypedDict, Callable, Optional
 
@@ -52,8 +53,11 @@ def _run_ffprobe_duration_seconds(path: Path) -> float | None:
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
+    kwargs = {"capture_output": True, "text": True, "check": False, "timeout": 120}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=120)
+        result = subprocess.run(cmd, **kwargs)
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("ffprobe failed for %s: %s", path, exc)
         return None
