@@ -8,7 +8,19 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: intel
+            os: macos-13
+            suffix: Intel
+          - arch: silicon
+            os: macos-14
+            suffix: AppleSilicon
+    
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.arch }})
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,7 +36,8 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Download ffmpeg and ffprobe (macOS static build)
+      - name: Download ffmpeg and ffprobe (Intel)
+        if: matrix.arch == 'intel'
         run: |
           mkdir -p binaries
           # Download ffmpeg
@@ -32,7 +45,7 @@ jobs:
           unzip -o ffmpeg.zip -d bin_ffmpeg
           mv bin_ffmpeg/ffmpeg binaries/ffmpeg
           
-          # Download ffprobe (Corrected URL)
+          # Download ffprobe
           curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
           unzip -o ffprobe.zip -d bin_ffprobe
           mv bin_ffprobe/ffprobe binaries/ffprobe
@@ -40,51 +53,63 @@ jobs:
           chmod +x binaries/ffmpeg binaries/ffprobe
           rm -rf bin_ffmpeg bin_ffprobe ffmpeg.zip ffprobe.zip
 
+      - name: Install ffmpeg and ffprobe (Apple Silicon)
+        if: matrix.arch == 'silicon'
+        run: |
+          mkdir -p binaries
+          brew install ffmpeg
+          cp $(which ffmpeg) binaries/ffmpeg
+          cp $(which ffprobe) binaries/ffprobe
+          chmod +x binaries/ffmpeg binaries/ffprobe
+
       - name: Build with PyInstaller
         run: |
-          pyinstaller clipSorter.spec --clean --noconfirm
+          python -m PyInstaller clipSorter.spec --clean --noconfirm
 
       - name: Package artifact
         run: |
-          # The spec file creates BOTH a folder and an .app bundle.
-          # We only want the .app bundle for macOS production.
+          # Remove one-dir build to keep artifact lean
           rm -rf dist/ClipSorter-GUI-QuickStart
 
           cd dist
-          # -r: recursive, -y: preserve symlinks (ESSENTIAL to stay < 1GB)
-          zip -ry ../ClipSorter-macOS-Production.zip ClipSorter.app
+          # Create arch-specific zip
+          zip -ry ../ClipSorter-macOS-${{ matrix.suffix }}.zip ClipSorter.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ClipSorter-macOS
-          path: ClipSorter-macOS-Production.zip
+          name: ClipSorter-macOS-${{ matrix.suffix }}
+          path: ClipSorter-macOS-${{ matrix.suffix }}.zip
 
   smoke-test:
     needs: build-macos
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: intel
+            os: macos-13
+            suffix: Intel
+          - arch: silicon
+            os: macos-14
+            suffix: AppleSilicon
+    runs-on: ${{ matrix.os }}
+    name: Smoke Test (${{ matrix.arch }})
+    
     steps:
       - name: Download built app
         uses: actions/download-artifact@v4
         with:
-          name: ClipSorter-macOS
+          name: ClipSorter-macOS-${{ matrix.suffix }}
 
       - name: Smoke test (launch & quit)
         run: |
-          # The runner downloads the artifact contents directly (the Production zip)
-          unzip ClipSorter-macOS-Production.zip
-          
-          # Make the binary executable
+          unzip ClipSorter-macOS-${{ matrix.suffix }}.zip
           chmod -R +x ClipSorter.app
-
-          # Launch the app in the background
+          
+          # Launch app
           open "$PWD/ClipSorter.app"
-
-          # Give it a few seconds to fully open
           sleep 15
-
-          # Ask it to quit gracefully
-          # The application name in 'tell application' usually matches the bundle name
+          
+          # Graceful quit
           osascript -e 'tell application "ClipSorter" to quit'
-
-          echo "Smoke test finished – app launched and quit."
+          echo "Smoke test for ${{ matrix.arch }} finished."
