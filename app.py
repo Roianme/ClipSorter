@@ -75,7 +75,6 @@ class ClipSorterApp:
             
         self.folder_path: Optional[Path] = None
         self.mode_var = tk.StringVar(value=self.gui_state.get("mode", "all"))
-        self.dry_run_var = tk.BooleanVar(value=self.gui_state.get("dry_run", False))
         
         self.status_var = tk.StringVar(value="Select a folder to begin.")
         self.progress_var = tk.DoubleVar(value=0)
@@ -241,24 +240,16 @@ Drag and drop a folder here.""")
             rb.pack(side="left", padx=5)
         ToolTip(mode_frame, "Choose the type of media to process (photo, video, audio).")
 
-        # Options
-        opts_frame = ttk.Frame(frame)
-        opts_frame.pack(fill="x", pady=(0, 10))
-        
-        self.preview_check = ttk.Checkbutton(opts_frame, text="Preview only (no changes)", variable=self.dry_run_var)
-        self.preview_check.pack(side="left", padx=5)
-        ToolTip(self.preview_check, "Preview changes without moving or converting any files.")
-
         # Buttons
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", pady=10)
-        self.run_button = ttk.Button(btn_frame, text="Run (Ctrl+Enter)", command=lambda: self._start_pipeline(self.dry_run_var.get()), state="disabled")
+        self.run_button = ttk.Button(btn_frame, text="Run (Ctrl+Enter)", command=lambda: self._start_pipeline(False), state="disabled")
         self.run_button.pack(side="left", padx=5)
         ToolTip(self.run_button, "Start organizing (Ctrl+Enter)")
         
         self.preview_button = ttk.Button(btn_frame, text="Preview (Shift+Enter)", command=lambda: self._start_pipeline(True), state="disabled")
         self.preview_button.pack(side="left", padx=5)
-        ToolTip(self.preview_button, "Preview changes (Shift+Enter)")
+        ToolTip(self.preview_button, "Preview changes without moving or converting any files (Shift+Enter)")
 
         self.cancel_button = ttk.Button(btn_frame, text="Cancel (Escape)", command=self._cancel_pipeline, state="disabled")
         self.cancel_button.pack(side="left", padx=5)
@@ -411,8 +402,7 @@ Drag and drop a folder here.""")
         # Save settings
         self.gui_state.update({
             "geometry": self.root.winfo_geometry(),
-            "mode": self.mode_var.get(),
-            "dry_run": self.dry_run_var.get()
+            "mode": self.mode_var.get()
         })
         self.settings.save(self.gui_state)
         
