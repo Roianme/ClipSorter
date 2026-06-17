@@ -413,4 +413,6 @@ Drag and drop a folder here.""")
         self.root.destroy()
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     ClipSorterApp().run()
