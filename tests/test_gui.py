@@ -2,6 +2,7 @@
 GUI Test Suite for ClipSorter.
 Requires a display environment to run (e.g., local developer machine).
 """
+import sys
 import pytest
 import tkinter as tk
 import time
@@ -10,18 +11,30 @@ from pathlib import Path
 import tempfile
 import shutil
 import os
+import subprocess
 from app import ClipSorterApp
 
-# Skip GUI tests if display is not available
-def is_gui_available():
+# On macOS, calling tkinter.Tk() in-process on a headless runner causes a Bus
+# error that kills pytest before any exception handler can fire.  Run the probe
+# in a child process so a crash there is safely caught.
+if sys.platform == "darwin":
     try:
-        root = tk.Tk()
-        root.destroy()
-        return True
-    except (tk.TclError, Exception):
-        return False
+        subprocess.run(
+            ["python", "-c", "import tkinter; tkinter.Tk()"],
+            check=True,
+            capture_output=True,
+            timeout=5,
+        )
+        _DISPLAY_AVAILABLE = True
+    except Exception:
+        _DISPLAY_AVAILABLE = False
+else:
+    _DISPLAY_AVAILABLE = True
 
-pytestmark = pytest.mark.skipif(not is_gui_available(), reason="No display available for GUI tests")
+pytestmark = pytest.mark.skipif(
+    not _DISPLAY_AVAILABLE,
+    reason="No display available — skipping GUI tests on headless macOS",
+)
 
 @pytest.fixture
 def app_instance():
