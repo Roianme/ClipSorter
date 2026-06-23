@@ -11,6 +11,8 @@ import numpy as np
 from ultralytics import YOLO
 
 from qc_video import QCResult, _laplacian_variance_gray
+from src.cancellation import CancellationToken, check_cancelled
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +56,23 @@ def _choose_primary_subject(subjects: list[dict[str, Any]], frame_shape: tuple[i
 def _subject_detection_status(
     frame: np.ndarray,
     config: dict[str, Any],
+    cancel_token: Optional[CancellationToken] = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     if not bool(config.get("subject_detection_enabled", True)):
         return "pass", [], []
 
+    check_cancelled(cancel_token)
     model_name = config["subject_detection_model"]
     min_confidence = float(config["subject_detection_min_confidence"])
     subject_classes = {str(item).lower() for item in config["subject_detection_classes"]}
     fallback_classes = {str(item).lower() for item in config["subject_detection_fallback_classes"]}
     min_area_ratio = float(config["subject_detection_min_area_ratio"])
 
+    check_cancelled(cancel_token)
     model = _load_yolo_model(model_name)
+    check_cancelled(cancel_token)
     results = model.predict(frame, conf=min_confidence, verbose=False)
+    check_cancelled(cancel_token)
     if not results:
         return "rejected", ["Subject detection failed to produce results"], []
 
@@ -119,7 +126,12 @@ def _subject_crop_blur(frame: np.ndarray, xyxy: tuple[int, int, int, int]) -> fl
     return _laplacian_variance_gray(gray_crop)
 
 
-def analyze_photo(path: Path | str | None = None, config: dict[str, Any] | None = None, frame: np.ndarray | None = None) -> QCResult:
+def analyze_photo(
+    path: Path | str | None = None,
+    config: dict[str, Any] | None = None,
+    frame: np.ndarray | None = None,
+    cancel_token: Optional[CancellationToken] = None,
+) -> QCResult:
     """
     Run photo QC checks.
 
@@ -129,9 +141,12 @@ def analyze_photo(path: Path | str | None = None, config: dict[str, Any] | None 
         path: File path to photo (optional if frame is provided)
         config: Configuration dict
         frame: Pre-loaded numpy array (BGR format), skips file reading
+        cancel_token: Optional cancellation token
     """
     if config is None:
         raise ValueError("config must be provided")
+    
+    check_cancelled(cancel_token)
     
     if frame is None:
         if path is None:
@@ -154,7 +169,13 @@ def analyze_photo(path: Path | str | None = None, config: dict[str, Any] | None 
     else:
         reasons: list[str] = []
 
-    subject_check, subject_reasons, subject_boxes = _subject_detection_status(frame, config)
+    check_cancelled(cancel_token)
+    import inspect
+    sig = inspect.signature(_subject_detection_status)
+    if "cancel_token" in sig.parameters:
+        subject_check, subject_reasons, subject_boxes = _subject_detection_status(frame, config, cancel_token=cancel_token)
+    else:
+        subject_check, subject_reasons, subject_boxes = _subject_detection_status(frame, config)
     reasons.extend(subject_reasons)
 
     if subject_check == "pass" and subject_boxes:
