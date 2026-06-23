@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.pipeline_shared import JsonEmitter, PipelineProgressCallback
+from src.cancellation import CancellationToken, PipelineCancelledError, check_cancelled
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -19,7 +20,7 @@ if str(SRC_DIR) not in sys.path:
 import classifier
 import config_loader
 import converter
-import duplicate
+from src import duplicate
 import mover
 import reporter
 import scanner
@@ -31,11 +32,11 @@ from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger(__name__)
 
 
-def _as_completed_responsive(futures: dict[concurrent.futures.Future, Any], cancel_token: ps.CancellationToken | None):
+def _as_completed_responsive(futures: dict[concurrent.futures.Future, Any], cancel_token: CancellationToken | None):
     """Yield futures as they complete, but check for cancellation frequently."""
     remaining = set(futures.keys())
     while remaining:
-        ps.check_cancelled(cancel_token)
+        check_cancelled(cancel_token)
         done, _ = concurrent.futures.wait(
             remaining, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED
         )
@@ -81,7 +82,7 @@ def run_media_pipeline(
     progress_callback: PipelineProgressCallback | None = None,
     json_emitter: JsonEmitter | None = None,
     dry_run: bool = False,
-    cancel_token: ps.CancellationToken | None = None,
+    cancel_token: CancellationToken | None = None,
     # New parameter to allow passing already scanned records
     pre_scanned_records: tuple[list[scanner.FileRecord], list[dict[str, Any]]] | None = None,
 ) -> int:
@@ -99,7 +100,7 @@ def run_media_pipeline(
             getattr(json_emitter, emitter_method)(*args, **kwargs)
 
     try:
-        ps.check_cancelled(cancel_token)
+        check_cancelled(cancel_token)
         if json_emitter is None:
             prefix = "DRY RUN: " if dry_run else ""
             print(f"{prefix}ClipSorter v1.0 - {media_type.upper()}")
@@ -163,7 +164,7 @@ def run_media_pipeline(
             return _sub_cb
 
         # Convert files
-        ps.check_cancelled(cancel_token)
+        check_cancelled(cancel_token)
         ps.emit_progress_stage(progress_callback, "Converting formats...")
         _j("emit_stage", "Converting formats")
         converted_records: list[converter.ConvertedFileRecord] = []
@@ -200,11 +201,11 @@ def run_media_pipeline(
             )
             
             for future in progress_iter:
-                ps.check_cancelled(cancel_token)
+                check_cancelled(cancel_token)
                 record = futures[future]
                 try:
                     converted_records.append(future.result())
-                except ps.PipelineCancelledError:
+                except PipelineCancelledError:
                     raise
                 except Exception as exc:
                     logger.exception("Conversion failed for %s", record["original_path"])
@@ -364,7 +365,7 @@ def run_media_pipeline(
         
         # Simplified move logic using same iterator structure
         for record in converted_records:
-            ps.check_cancelled(cancel_token)
+            check_cancelled(cancel_token)
             converted_path = record.get("converted_path")
             if not converted_path or record.get("skipped"):
                 continue
@@ -410,7 +411,7 @@ def run_media_pipeline(
                 moved_paths[converted_path] = str(destination.relative_to(output_root).as_posix())
                 if dry_run:
                     _j("emit_file_done", converted_path, "would_move", dest=moved_paths[converted_path])
-            except ps.PipelineCancelledError:
+            except PipelineCancelledError:
                 raise
             except Exception:
                 logger.exception("Moving failed for %s", converted_path)
@@ -488,7 +489,7 @@ def run_media_pipeline(
 
             return 0
             
-    except ps.PipelineCancelledError:
+    except PipelineCancelledError:
         if json_emitter is not None:
             json_emitter.emit_error("CANCELLED", "Operation cancelled by user")
             # Also emit a final cancelled event as per requirement 4

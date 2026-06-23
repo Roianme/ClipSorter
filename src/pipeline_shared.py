@@ -28,13 +28,13 @@ try:
 except ImportError:  # pragma: no cover
     tqdm = None
 
-import classifier
-import config_loader
-import converter
-import duplicate
-import mover
-import reporter
-import scanner
+from src import classifier
+from src import config_loader
+from src import converter
+from src import duplicate
+from src import mover
+from src import reporter
+from src import scanner
 
 logger = logging.getLogger(__name__)
 
