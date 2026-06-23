@@ -12,37 +12,10 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Literal, TextIO, Optional
 
-Bucket = Literal["clean", "review", "rejected", "burst"]
+from src.cancellation import PipelineCancelledError, CancellationToken, check_cancelled
 
 PipelineProgressCallback = Callable[[str], None]
-
-
-class PipelineCancelledError(Exception):
-    """Raised when the pipeline is cancelled by the user."""
-    pass
-
-
-class CancellationToken:
-    """
-    Thread-safe token used to signal cancellation to the pipeline.
-    """
-
-    def __init__(self) -> None:
-        self._event = threading.Event()
-
-    def cancel(self) -> None:
-        """Trigger cancellation."""
-        self._event.set()
-
-    def is_cancelled(self) -> bool:
-        """Check if cancellation has been triggered."""
-        return self._event.is_set()
-
-
-def check_cancelled(token: Optional[CancellationToken]) -> None:
-    """Raise PipelineCancelledError if the token is set."""
-    if token is not None and token.is_cancelled():
-        raise PipelineCancelledError("Operation cancelled by user")
+Bucket = Literal["clean", "review", "rejected", "burst"]
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -316,16 +289,16 @@ def run_qc_check_wrapper(
             if sub_progress:
                 sub_progress(0.5) # Generic mid-point for photos
             if image_array is not None:
-                res = qc_func(config=config, frame=image_array)
+                res = qc_func(config=config, frame=image_array, cancel_token=cancel_token)
             else:
-                res = qc_func(converted_path, config)
+                res = qc_func(converted_path, config, cancel_token=cancel_token)
             if sub_progress:
                 sub_progress(1.0)
             return converted_path, res
         elif detected_type == "audio":
             if sub_progress:
                 sub_progress(0.5)
-            res = qc_func(converted_path, config)
+            res = qc_func(converted_path, config, cancel_token=cancel_token)
             if sub_progress:
                 sub_progress(1.0)
             return converted_path, res

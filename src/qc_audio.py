@@ -10,12 +10,15 @@ import librosa
 import numpy as np
 
 from qc_video import QCLevel, QCResult, _run_ffprobe_duration_seconds
+from src.cancellation import CancellationToken, check_cancelled
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _silence_ratio(path: Path, silence_rms_threshold: float) -> float | None:
+def _silence_ratio(path: Path, silence_rms_threshold: float, cancel_token: Optional[CancellationToken] = None) -> float | None:
     """Fraction of RMS frames below threshold; None if librosa cannot analyze."""
+    check_cancelled(cancel_token)
     try:
         waveform, _sample_rate = librosa.load(path, sr=None, mono=True)
     except Exception as exc:
@@ -33,13 +36,18 @@ def _silence_ratio(path: Path, silence_rms_threshold: float) -> float | None:
     return silent_frames / float(rms.size)
 
 
-def analyze_audio(path: Path | str, config: dict[str, Any]) -> QCResult:
+def analyze_audio(
+    path: Path | str,
+    config: dict[str, Any],
+    cancel_token: Optional[CancellationToken] = None,
+) -> QCResult:
     """
     Run audio QC checks.
 
     blur_check and shake_check are always pass (not applicable).
     exposure_check carries the silence result for this media type.
     """
+    check_cancelled(cancel_token)
     audio_path = Path(path)
     reasons: list[str] = []
 
@@ -57,7 +65,8 @@ def analyze_audio(path: Path | str, config: dict[str, Any]) -> QCResult:
     else:
         duration_check = "pass"
 
-    silence_ratio = _silence_ratio(audio_path, float(config["silence_rms_threshold"]))
+    check_cancelled(cancel_token)
+    silence_ratio = _silence_ratio(audio_path, float(config["silence_rms_threshold"]), cancel_token=cancel_token)
     silence_ratio_threshold = float(config["silence_ratio_threshold"])
 
     if silence_ratio is None:
