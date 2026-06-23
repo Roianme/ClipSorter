@@ -13,8 +13,8 @@ import librosa
 import numpy as np
 from PIL import Image
 
-from src.qc_video import _read_sampled_frames, _run_ffprobe_duration_seconds
-from src import pipeline_shared as ps
+from src.video_utils import _read_sampled_frames, _run_ffprobe_duration_seconds
+from src.cancellation import CancellationToken, check_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -143,15 +143,16 @@ def find_image_duplicates(photo_paths: list[str | Path], config: dict[str, Any])
     return pairs
 
 
-def find_burst_groups(photo_paths: list[str | Path], config: dict[str, Any], cancel_token: Optional[ps.CancellationToken] = None) -> list[BurstGroup]:
-    ps.check_cancelled(cancel_token)
+def find_burst_groups(photo_paths: list[str | Path], config: dict[str, Any], cancel_token: Optional[CancellationToken] = None) -> list[BurstGroup]:
+
+    check_cancelled(cancel_token)
     burst_threshold = int(config["burst_hash_distance_threshold"])
     exact_threshold = int(config["duplicate_hash_threshold"])
     min_group_size = int(config["burst_min_group_size"])
 
     indexed: list[tuple[str, imagehash.ImageHash]] = []
     for raw_path in photo_paths:
-        ps.check_cancelled(cancel_token)
+        check_cancelled(cancel_token)
         path = Path(raw_path)
         phash = _photo_phash(path)
         if phash is not None:

@@ -17,7 +17,7 @@ import numpy as np
 # Import binary_resolver
 from src.binary_resolver import resolve_binary # Consistent import
 
-from src import pipeline_shared as ps
+from src.cancellation import CancellationToken, check_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -38,44 +38,7 @@ class QCResult(TypedDict, total=False):
     reasons: list[str]
 
 
-def _run_ffprobe_duration_seconds(path: Path) -> float | None:
-    try:
-        ffprobe_path = resolve_binary("ffprobe")
-    except FileNotFoundError:
-        logger.warning("ffprobe not found; cannot read video duration for %s", path)
-        return None
-
-    cmd = [
-        ffprobe_path,
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    kwargs = {"capture_output": True, "text": True, "check": False, "timeout": 120}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    try:
-        result = subprocess.run(cmd, **kwargs)
-    except (subprocess.SubprocessError, OSError) as exc:
-        logger.warning("ffprobe failed for %s: %s", path, exc)
-        return None
-
-    if result.returncode != 0:
-        logger.warning("ffprobe returned %s for %s: %s", result.returncode, path, result.stderr.strip())
-        return None
-
-    text = result.stdout.strip()
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        logger.warning("ffprobe gave non-numeric duration for %s: %r", path, text)
-        return None
+from src.video_utils import _run_ffprobe_duration_seconds
 
 
 def _laplacian_variance_gray(gray: np.ndarray) -> float:
@@ -85,57 +48,10 @@ def _laplacian_variance_gray(gray: np.ndarray) -> float:
     return float(lap.var())
 
 
-def _sample_frame_timestamps(duration_sec: float, sample_count: int) -> list[float]:
-    if sample_count <= 0:
-        return []
-    if duration_sec <= 0:
-        return [0.0] * sample_count
-    if sample_count == 1:
-        return [min(duration_sec / 2.0, max(duration_sec - 1e-3, 0.0))]
-    return [duration_sec * i / (sample_count - 1) for i in range(sample_count)]
+from src.video_utils import _sample_frame_timestamps
 
 
-def _read_sampled_frames(
-    path: Path,
-    duration_sec: float | None,
-    sample_count: int,
-) -> tuple[list[np.ndarray] | None, str | None]:
-    """Return list of BGR frames or None if OpenCV cannot read.
-
-    Retained for duplicate detection in video pipeline.
-    """
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        logger.warning("OpenCV cannot open video: %s", path)
-        return None, "OpenCV cannot open video"
-
-    frames: list[np.ndarray] = []
-    try:
-        if duration_sec is not None and duration_sec > 0:
-            timestamps = _sample_frame_timestamps(duration_sec, sample_count)
-            for t_sec in timestamps:
-                cap.set(cv2.CAP_PROP_POS_MSEC, t_sec * 1000.0)
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ok, frame = cap.read()
-                if not ok or frame is None:
-                    logger.warning("Failed to read frame at %.3fs in %s", t_sec, path)
-                    return None, "Failed to read sampled frames"
-                frames.append(frame)
-        else:
-            for _ in range(sample_count):
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    if not frames:
-                        return None, "Failed to read sampled frames"
-                    frames.append(frames[-1])
-                    continue
-                frames.append(frame)
-    finally:
-        cap.release()
-
-    return frames, None
+from src.video_utils import _read_sampled_frames
 
 
 def _mean_brightness_bgr(frame: np.ndarray) -> float:
@@ -181,7 +97,7 @@ def analyze_video(
     path: Path | str, 
     config: dict[str, Any],
     sub_progress: SubProgressCallback | None = None,
-    cancel_token: Optional[ps.CancellationToken] = None,
+    cancel_token: Optional[CancellationToken] = None,
 ) -> QCResult:
     """
     Determine if a video clip has at least 5 consecutive seconds of a steady,
@@ -243,7 +159,7 @@ def analyze_video(
         processed_frames = 0
         
         while True:
-            ps.check_cancelled(cancel_token)
+            check_cancelled(cancel_token)
             ok, frame = cap.read()
             if not ok or frame is None:
                 break
