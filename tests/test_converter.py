@@ -190,7 +190,7 @@ def test_raw_both_decoders_fail_marks_skipped(
     source = tmp_path / "broken.arw"
     source.write_bytes(b"not a raw file")
 
-    monkeypatch.setattr("converter._convert_photo_raw", lambda *_: False)
+    monkeypatch.setattr("converter._convert_photo_raw", lambda *_, **__: False)
 
     result = convert_file(_record(source, "photo", ".arw"), config, work_dir=work_dir)
 
@@ -208,7 +208,7 @@ def test_video_h264_uses_stream_copy(
     source.write_bytes(b"placeholder")
     commands: list[list[str]] = []
 
-    def fake_run(cmd: list[str]) -> MagicMock:
+    def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
         commands.append(cmd)
         if cmd[0] == "ffprobe":
             return MagicMock(returncode=0, stdout="h264\n", stderr="")
@@ -238,7 +238,7 @@ def test_video_non_h264_reencodes_with_config_crf(
     source.write_bytes(b"placeholder")
     commands: list[list[str]] = []
 
-    def fake_run(cmd: list[str]) -> MagicMock:
+    def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
         commands.append(cmd)
         if cmd[0] == "ffprobe":
             return MagicMock(returncode=0, stdout="hevc\n", stderr="")
@@ -295,8 +295,8 @@ def test_cleanup_permission_error_is_logged_and_skipped(
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(b"existing")
 
-    monkeypatch.setattr("converter._allocate_output_path", lambda *_: dest)
-    monkeypatch.setattr("converter._convert_photo", lambda *_: False)
+    monkeypatch.setattr("converter._allocate_output_path", lambda *_, **__: dest)
+    monkeypatch.setattr("converter._convert_photo", lambda *_, **__: False)
 
     def locked_unlink(self, *args, **kwargs):
         raise PermissionError("file in use")

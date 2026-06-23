@@ -75,11 +75,10 @@ def test_dry_run_integration(app_instance: ClipSorterApp, temp_dir: Path):
         (temp_dir / f"test{i}.jpg").touch()
         
     app.folder_entry.insert(0, str(temp_dir))
-    app.dry_run_var.set(True) # Check the "Preview only" box
     app._validate_folder()
     
     with patch('app.MediaPipelineService.run', return_value={"status": "success"}) as mock_run:
-        app.run_button.invoke() # Start pipeline using Run button
+        app.preview_button.invoke() # Start pipeline using Preview button
         
         wait_for_idle(app)
         
