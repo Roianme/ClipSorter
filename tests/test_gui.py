@@ -11,33 +11,24 @@ from pathlib import Path
 import tempfile
 import shutil
 import os
-import subprocess
 from app import ClipSorterApp
 
-# On macOS, calling tkinter.Tk() in-process on a headless runner causes a Bus
-# error that kills pytest before any exception handler can fire.  Run the probe
-# in a child process so a crash there is safely caught.
-if sys.platform == "darwin":
-    try:
-        subprocess.run(
-            ["python", "-c", "import tkinter; tkinter.Tk()"],
-            check=True,
-            capture_output=True,
-            timeout=5,
-        )
-        _DISPLAY_AVAILABLE = True
-    except Exception:
-        _DISPLAY_AVAILABLE = False
-else:
-    _DISPLAY_AVAILABLE = True
+# GUI tests require a real display. On macOS CI runners there is no display and
+# Tkinter causes a fatal Bus error. Skip the entire module when running headless.
+_HEADLESS = sys.platform == "darwin" and (
+    os.environ.get("CI") == "true"
+    or os.environ.get("GITHUB_ACTIONS") == "true"
+)
 
 pytestmark = pytest.mark.skipif(
-    not _DISPLAY_AVAILABLE,
-    reason="No display available — skipping GUI tests on headless macOS",
+    _HEADLESS,
+    reason="Skipping GUI tests on headless macOS CI (no display)",
 )
 
 @pytest.fixture
 def app_instance():
+    if _HEADLESS:
+        pytest.skip("No display")
     # Mock dependency check to avoid blocking dialogs on systems without ffmpeg
     with patch('app.check_all_dependencies', return_value=[]):
         # Mock update check to avoid network calls and crashes in CI
